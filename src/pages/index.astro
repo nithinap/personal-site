@@ -1,7 +1,7 @@
 ---
 import '../styles/index.css';
 
-import ProfilePicture from '../assets/pfp.png';
+import ProfilePicture from '../assets/profile-pic.png';
 
 import Card from '../components/Card.astro';
 import Layout from '../layouts/Layout.astro';
@@ -32,7 +32,7 @@ const { Content: About } = await render(about!);
 >
 	<div class="layout-grid-left" slot="left">
 		<Card class="flex-col-card">
-			<ImageGlow quality={100} width={120} height={120} src={ProfilePicture} alt="Louis looking out of a window" loading='eager' />
+			<ImageGlow quality={100} width={120} height={120} src={ProfilePicture} alt="Nithin - profile pic" loading='eager' />
 			<h2>{name}</h2>
 			<ul class="overview-list">
 				{quickInfo.map((info) => (
@@ -107,7 +107,7 @@ const { Content: About } = await render(about!);
 				<h2>Work Experience</h2>
 			</div>
 			<div class="work-experience-container">
-				{workExperience.reverse().map((entry) => (
+				{workExperience.map((entry) => (
 					<div class="work-experience-entry">
 						<span class="work-experience-duration">{entry.data.duration}</span>
 						<h3 class="work-experience-company">{entry.data.company}</h3>

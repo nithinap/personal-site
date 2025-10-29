@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 
 import expressiveCode from 'astro-expressive-code';
 import mdx from '@astrojs/mdx';
+import netlify from '@astrojs/netlify';
 import sitemap from '@astrojs/sitemap';
 import spectre from './package/src';
 
@@ -32,20 +33,22 @@ const config = defineConfig({
     mdx(),
     sitemap(),
     spectre({
-      name: 'Spectre',
+      name: 'Nithin',
       openGraph: {
         home: {
-          title: 'Spectre',
-          description: 'A minimalistic theme for Astro.'
+          title: 'Nithin Athrapulikkal',
+          description: 'Software Engineer'
         },
         blog: {
           title: 'Blog',
-          description: 'News and guides for Spectre.'
+          description: 'My experiments and experiences'
         },
         projects: {
           title: 'Projects'
         }
       },
+      /* 
+      TODO: integrate Giscus
       giscus: {
         repository: GISCUS_REPO,
         repositoryId: GISCUS_REPO_ID,
@@ -57,11 +60,10 @@ const config = defineConfig({
         emitMetadata: GISCUS_EMIT_METADATA === "true",
         lang: GISCUS_LANG,
       }
+      */
     })
   ],
-  adapter: node({
-    mode: 'standalone'
-  })
+  adapter: netlify(),
 });
 
 export default config;

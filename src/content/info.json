@@ -3,9 +3,9 @@
     "id": 1,
     "icon": {
       "type": "lucide",
-      "name": "cake"
+      "name": "chevrons-left-right-ellipsis"
     },
-    "text": "1 year old"
+    "text": "Software Development Engineer"
   },
   {
     "id": 2,
@@ -14,6 +14,15 @@
       "name": "earth"
     },
     "type": "lucide",
-    "text": "Made in Germany"
+    "text": "Boulder, Colorado, USA"
+  },
+  {
+    "id": 3,
+    "icon": {
+      "type": "lucide",
+      "name": "telescope"
+    },
+    "type": "lucide",
+    "text": "Engineer by trade, explorer by nature."
   }
 ]

@@ -1,9 +1,37 @@
 [
   {
+    "id": 5,
+    "duration": "April 2020 - Present",
+    "company": "Amazon",
+    "title": "Software Engineer II",
+    "description": "Building large-scale advertising technology platforms including Amazon Advertising Events Manager for off-Amazon conversion tracking, and FMA Buying Option Analytics Datalake. Designed data processing pipelines, event processors, and data privacy compliance systems handling terabyte-scale data."
+  },
+  {
+    "id": 4,
+    "duration": "Aug 2018 - April 2020",
+    "company": "Alphonso Inc.",
+    "title": "Data Engineer",
+    "description": "Developed data processing pipelines and automation frameworks for TV ad re-targeting and measurement services. Implemented community detection algorithms for IP-Device graph processing using Spark GraphX and Louvain algorithm to analyze billions of nodes."
+  },
+  {
+    "id": 3,
+    "duration": "Jul 2017 - Aug 2018",
+    "company": "Envestnet Yodlee",
+    "title": "Software Engineer",
+    "description": "Built real-time streaming platform for financial data using CDC logs, Kafka, Spark streaming, and Apache Kudu. Enabled faster analytics on rapidly changing financial data by replicating OLTP databases to Hadoop ecosystem with significantly lower query latency."
+  },
+  {
+    "id": 2,
+    "duration": "Oct 2014 - Jun 2017",
+    "company": "Infosys",
+    "title": "Senior System Engineer",
+    "description": "Worked on Infosys Nia, a knowledge-based AI platform bringing machine learning and organizational knowledge for automation. Developed stream processors, problem analytics tools, exchange simulators, and ITSM adapters. Reduced manual maintenance effort by 20% through automated housekeeping tools."
+  },
+  {
     "id": 1,
-    "duration": "2024 - present",
-    "company": "Astro Community",
-    "title": "Astro Theme",
-    "description": "Existing as an Astro theme for anyone to use."
+    "duration": "Jun - Sep 2014",
+    "company": "VVDN Technologies",
+    "title": "Software Engineer",
+    "description": "Upgraded BeagleBoard camera cape driver from Debian 7.0 to Debian 10, improving FPS rates to achieve minimum 32 FPS with 5MP webcams for enhanced camera functionality on open-source hardware platforms."
   }
 ]
