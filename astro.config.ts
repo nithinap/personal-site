@@ -24,7 +24,7 @@ const {
 
 // https://astro.build/config
 const config = defineConfig({
-  site: 'https://spectre.lou.gg',
+  site: 'https://nithinap.lou.gg',
   output: 'static',
   integrations: [
     expressiveCode({
@@ -33,7 +33,7 @@ const config = defineConfig({
     mdx(),
     sitemap(),
     spectre({
-      name: 'Nithin',
+      name: 'Nithin Athrapulikkal',
       openGraph: {
         home: {
           title: 'Nithin Athrapulikkal',
