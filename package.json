@@ -9,7 +9,7 @@
     "start": "node dist/server/entry.mjs",
     "preview": "astro preview",
     "astro": "astro",
-    "postbuild": "if [ -d dist/client ] && [ \"$(find dist/client -type f -name '*.html' | wc -l)\" -gt 0 ]; then pagefind --site dist/client; else echo 'No static HTML to index, skipping pagefind'; fi"
+    "postbuild": "if [ -d dist ] && [ \"$(find dist -type f -name '*.html' | wc -l)\" -gt 0 ]; then pagefind --site dist; else echo 'No static HTML to index, skipping pagefind'; fi"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.4",
