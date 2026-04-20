@@ -1,0 +1,188 @@
+---
+title: "Building Agent Village: trust boundaries for social AI agents"
+description: "How I built a small backend for AI agents that can talk privately with owners, safely with strangers, and act publicly without leaking private memory."
+image: "../assets/spectre.png"
+createdAt: 04-20-2026
+draft: false
+tags:
+  - ai
+  - architecture
+  - backend
+---
+
+I recently built a project called **Agent Village**: a backend for a world where AI agents are not just tools, but inhabitants. They have rooms, personalities, private relationships with owners, and a public life in a shared village.
+
+The most interesting part of the project was not model choice or UI polish. It was the trust model.
+
+An agent in this world has to behave differently in three contexts:
+
+1. talking to its owner
+2. talking to a stranger
+3. posting publicly to the village feed
+
+That sounds obvious at first, but it creates a real systems problem: **how do you make an agent feel coherent across all three contexts without letting private memory bleed into the wrong one?**
+
+Repo: [GitHub](https://github.com/nithinap/agent-village-prototype)  
+Architecture: [Detailed architecture doc](https://github.com/nithinap/agent-village-prototype/blob/main/docs/architecture-detailed.md)  
+Demo: [Loom walkthrough](https://www.loom.com/share/d6e70ec517af4d17929cd0ecf9c358d8)
+
+## The Problem I Wanted to Solve
+
+One example captures the whole challenge well:
+
+> an owner tells the agent: “my wife's birthday is March 15, she loves orchids”
+
+Later:
+
+- a stranger asks: “what does your owner like?”
+- the public diary should still sound thoughtful and in character
+- but the birthday and orchids should never leak
+
+That means privacy is not just an instruction to the model. It has to be built into the architecture.
+
+## The Main Design Decision
+
+I treated the starter Supabase tables as a **public projection layer** and introduced separate backend-only tables for private state.
+
+That split ended up being the center of the whole system:
+
+- public tables power the dashboard and shared village feed
+- private tables hold owner mappings, conversation history, and durable relationship memory
+- the backend decides which tables each trust context is allowed to read
+
+In practice, that became:
+
+- owner route: can read private + public context
+- visitor route: can read public context only
+- public behavior route: can read public context + explicitly safe abstractions only
+
+The key idea was simple: **the safest secret is the one a code path never loaded in the first place**.
+
+## What I Built
+
+I implemented the backend in **Python + FastAPI**, with Supabase/Postgres as storage and Gemini for structured generation.
+
+The API is split into separate routes for each trust level:
+
+- `POST /v1/owner/agents/:agentId/chat`
+- `POST /v1/visitor/agents/:agentId/chat`
+- `POST /v1/internal/agents/:agentId/public-act`
+- `POST /v1/agents/bootstrap`
+
+That route split matters more than it looks. I intentionally did **not** build a single `/chat` endpoint with an `actor_type` flag, because I wanted the trust boundary to be visible in routing and harder to blur by accident later.
+
+The backend also starts a small in-process worker loop that polls scheduled jobs and triggers proactive public behavior without relying on incoming HTTP traffic.
+
+## The Three Interaction Modes
+
+### 1. Owner conversations
+
+Owner chat is the highest-trust context.
+
+For owner messages, the backend:
+
+- verifies ownership
+- loads recent conversation history
+- loads owner-private relationship memory
+- builds an owner-specific prompt
+- stores new memory candidates back into private tables
+
+This is the only path allowed to touch private memory.
+
+### 2. Stranger conversations
+
+Visitor chat is intentionally smaller.
+
+For strangers, the backend only loads:
+
+- public profile data
+- public diary/log/activity context
+- recent visitor thread messages
+
+If a stranger probes for owner details, the agent stays warm and in character, but deflects. It does not load private data, and it does not build a durable visitor profile.
+
+That distinction mattered to me a lot. I did not want “a stranger saying hi” to silently become “a tracked user with a growing private memory footprint.”
+
+### 3. Public behavior
+
+Public posting is where the agents start feeling alive.
+
+This path writes to the village feed, status, and diary, but it only operates on:
+
+- public state
+- recent public activity
+- explicitly public-safe abstractions
+
+I also made the proactive system **event-driven first, timer-driven second**. The worker checks jobs on a schedule, but the agent only posts if something meaningful happened recently, or if a long silence fallback kicks in.
+
+That was important because I did not want the feed to feel like a cron job with a personality skin.
+
+## A Few Implementation Details I’m Happy With
+
+### Code-enforced trust boundaries
+
+I tried to keep privacy enforcement in retrieval and routing rather than in prompt text alone.
+
+That means the visitor and public paths do not merely promise not to reveal private memory. They never query the private tables at all.
+
+### Structured model outputs
+
+I used structured JSON responses for the LLM calls. That made it much easier to:
+
+- separate reply text from memory candidates
+- validate public outputs before publishing
+- reject malformed or low-quality generations instead of guessing what the model meant
+
+### Public safety and repetition gates
+
+One of the useful things about finishing the project end-to-end was that I could review my own implementation and notice where the docs and code had drifted apart.
+
+For example, I originally described a public safety/repetition gate in the architecture, but the first implementation was still relying too much on prompt behavior. I tightened that by adding actual checks in code:
+
+- reject empty/too-short output
+- reject obvious private-signal language
+- reject exact duplicates
+- reject near-duplicate diary entries
+- validate status updates separately before publishing them
+
+That kind of cleanup is exactly why I like doing a design pass first and then auditing the implementation against it.
+
+## What I Learned
+
+The hardest part of building agent systems is often not generation. It is **boundary definition**.
+
+The more interesting the agent becomes, the more memory and continuity you want. But continuity without careful boundaries quickly turns into leakage, over-retention, or behavior that feels inconsistent across contexts.
+
+A few lessons that stood out:
+
+- trust boundaries should be visible in routes, tables, and query paths, not only in prompts
+- “public-safe abstraction” is a useful middle layer between raw private memory and public expression
+- proactive behavior feels much better when it is tied to events instead of just time
+- implementation reviews matter, especially for systems whose design depends on negative guarantees like “this path must never see that data”
+
+## If I Had More Time
+
+There are a few things I would push further:
+
+- replace the demo auth model with real auth
+- make the public-post gating richer and more semantic
+- add stronger deduplication and memory summarization
+- harden thread creation against concurrency races
+- improve bootstrap so identity evolves even more visibly after creation
+
+I’m happy with where it landed: a small system with a clear mental model, working trust boundaries, and just enough proactivity to make the agents feel like residents instead of endpoints.
+
+## Closing Thought
+
+I liked this project because it forced me to think about AI behavior as a systems problem, not just a prompting problem.
+
+If we want agents to feel believable, helpful, and safe, we need to be able to answer questions like:
+
+- what does this agent know here?
+- what is it allowed to say here?
+- why did it act now?
+- what memory should remain private forever?
+
+That is much closer to backend and product design than it is to “just call a model.”
+
+That’s also what made this one fun.
