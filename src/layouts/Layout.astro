@@ -19,6 +19,10 @@ interface Props {
 }
 
 const { title, description, image, pagefindIgnore, article } = Astro.props;
+
+// This page's own absolute URL. Using Astro.site alone told search engines
+// that every page was a duplicate of the home page.
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!DOCTYPE html>
@@ -36,12 +40,12 @@ const { title, description, image, pagefindIgnore, article } = Astro.props;
 		{description && <meta name="description" content={description} />}
 		<meta name="theme-color" content={themeColor}>
 
-		<link rel="canonical" href={Astro.site} />
+		<link rel="canonical" href={canonicalURL} />
 
 		<meta name="og:title" content={title} />
 		{description && <meta name="og:description" content={description} />}
 		<meta name="og:image" content={image?.src || '/img/og.png'} />
-		<meta name="og:url" content={Astro.site} />
+		<meta name="og:url" content={canonicalURL} />
 		{!article && <meta name="og:type" content="website" />}
 		<meta name="og:locale" content="en" />
 

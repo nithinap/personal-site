@@ -24,7 +24,9 @@ const {
 
 // https://astro.build/config
 const config = defineConfig({
-  site: 'https://nithinap.lou.gg',
+  // Where the site is deployed. The previous value, nithinap.lou.gg, returns a
+  // 404, and every canonical tag, og:url and sitemap entry pointed there.
+  site: 'https://nithinap.netlify.app',
   output: 'static',
   integrations: [
     expressiveCode({
