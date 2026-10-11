@@ -1,0 +1,38 @@
+---
+// Auto / Light / Dark. Hidden without JavaScript, where the page simply
+// follows the reader's system setting.
+interface Props {
+	id: string;
+}
+const { id } = Astro.props;
+const options = [
+	['auto', 'Auto'],
+	['light', 'Light'],
+	['dark', 'Dark'],
+] as const;
+---
+<fieldset class="theme-switch" data-theme-switch>
+	<legend>Theme</legend>
+	<div class="options">
+		{options.map(([value, label]) => (
+			<label>
+				<input type="radio" name={`theme-${id}`} value={value} />
+				{label}
+			</label>
+		))}
+	</div>
+</fieldset>
+<script>
+	type ThemeApi = { get(): string; set(next: string): void };
+	const api = (window as unknown as { __seriesTheme?: ThemeApi }).__seriesTheme;
+	const sync = () => {
+		for (const input of document.querySelectorAll<HTMLInputElement>('[data-theme-switch] input')) {
+			input.checked = input.value === api?.get();
+		}
+	};
+	for (const input of document.querySelectorAll<HTMLInputElement>('[data-theme-switch] input')) {
+		input.addEventListener('change', () => api?.set(input.value));
+	}
+	document.addEventListener('series-theme', sync);
+	sync();
+</script>

@@ -1,0 +1,25 @@
+---
+// Renders an Observable Plot spec to inline SVG at build time. linkedom
+// stands in for the DOM here and never reaches the browser.
+import { parseHTML } from 'linkedom';
+
+interface Props {
+	render: (opts: { document: Document; width: number }) => Element;
+	width: number;
+	/** What the chart shows, for screen readers. */
+	label: string;
+	class?: string;
+}
+const { render, width, label, class: className } = Astro.props;
+const { document } = parseHTML('<!doctype html><html><body></body></html>');
+const svg = render({ document: document as unknown as Document, width })
+	.outerHTML.replace(/^<svg /, `<svg role="img" aria-label="${label.replace(/"/g, '&quot;')}" `);
+---
+<div class:list={['plot-svg', className]} set:html={svg} />
+<style>
+	.plot-svg :global(svg) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+</style>

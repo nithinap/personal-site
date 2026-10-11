@@ -1,0 +1,22 @@
+---
+// Every chapter with its promise and reading time; unwritten ones aren't links.
+import { getCollection } from 'astro:content';
+import { CHAPTERS, chapterUrl } from '../../lib/inference/series';
+
+const written = (await getCollection('inference')).map((e) => e.id);
+---
+<ol class="chapter-list">
+	{CHAPTERS.map((c) => {
+		const isWritten = written.includes(c.slug);
+		return (
+			<li class:list={{ unwritten: !isWritten }}>
+				<span class="num">{c.n}</span>
+				<div>
+					{isWritten ? <a href={chapterUrl(c.slug)}>{c.title}</a> : <span class="title">{c.title}</span>}
+					<span class="meta">{c.minutes} min{isWritten ? '' : ' · not written yet'}</span>
+					<p>After it you can {c.outcome}</p>
+				</div>
+			</li>
+		);
+	})}
+</ol>

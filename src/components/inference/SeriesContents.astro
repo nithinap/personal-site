@@ -1,0 +1,87 @@
+---
+// The series contents: in the left margin on desktop ("rail"), folded into a
+// disclosure above the title on phones ("mobile"). Written chapters are links
+// in the text colour; unwritten ones are plain muted text, which stays above
+// the 4.5:1 contrast minimum in both palettes (fading them with opacity did not).
+import { CHAPTERS, SERIES, chapterUrl, type ChapterInfo } from '../../lib/inference/series';
+import ThemeSwitch from './ThemeSwitch.astro';
+
+interface Props {
+	variant: 'rail' | 'mobile';
+	current?: ChapterInfo;
+	written: string[];
+	headings: { slug: string; text: string }[];
+}
+
+const { variant, current, written, headings } = Astro.props;
+const main = CHAPTERS.filter((c) => !c.appendix);
+const appendices = CHAPTERS.filter((c) => c.appendix);
+const summary = current ? `${current.appendix ? 'Appendix' : 'Chapter'} ${current.n} · contents` : 'Contents';
+---
+{variant === 'rail' ? (
+	<nav class="rail" aria-label="Series contents">
+		<a class="home" href={SERIES.base} aria-current={current ? undefined : 'page'}>{SERIES.title}</a>
+		<ol class="chapters">
+			{main.map((c) => (
+				<li>
+					{written.includes(c.slug) ? (
+						<a href={chapterUrl(c.slug)} aria-current={current?.slug === c.slug ? 'page' : undefined}><span class="num">{c.n}</span>{c.short}</a>
+					) : (
+						<span class="unwritten" title="Not written yet"><span class="num">{c.n}</span>{c.short}</span>
+					)}
+				</li>
+			))}
+		</ol>
+		<h2>Appendices</h2>
+		<ol class="chapters">
+			{appendices.map((c) => (
+				<li>
+					{written.includes(c.slug) ? (
+						<a href={chapterUrl(c.slug)} aria-current={current?.slug === c.slug ? 'page' : undefined}><span class="num">{c.n}</span>{c.short}</a>
+					) : (
+						<span class="unwritten" title="Not written yet"><span class="num">{c.n}</span>{c.short}</span>
+					)}
+				</li>
+			))}
+		</ol>
+		{headings.length > 0 && (
+			<>
+				<h2>On this page</h2>
+				<ol>
+					{headings.map((h) => (
+						<li class="toc-li"><a href={`#${h.slug}`}>{h.text}</a></li>
+					))}
+				</ol>
+			</>
+		)}
+		<ThemeSwitch id="rail" />
+	</nav>
+) : (
+	<details class="toc-mobile">
+		<summary>{summary}</summary>
+		<h2>{SERIES.title}</h2>
+		<ol class="chapters">
+			<li><a href={SERIES.base} aria-current={current ? undefined : 'page'}>Series home</a></li>
+			{CHAPTERS.map((c) => (
+				<li>
+					{written.includes(c.slug) ? (
+						<a href={chapterUrl(c.slug)} aria-current={current?.slug === c.slug ? 'page' : undefined}><span class="num">{c.n}</span>{c.short}</a>
+					) : (
+						<span class="unwritten"><span class="num">{c.n}</span>{c.short} (not written yet)</span>
+					)}
+				</li>
+			))}
+		</ol>
+		{headings.length > 0 && (
+			<>
+				<h2>On this page</h2>
+				<ol>
+					{headings.map((h) => (
+						<li><a href={`#${h.slug}`}>{h.text}</a></li>
+					))}
+				</ol>
+			</>
+		)}
+		<ThemeSwitch id="mobile" />
+	</details>
+)}

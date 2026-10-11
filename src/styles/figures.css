@@ -1,0 +1,249 @@
+/* Styles for the series' hydrated Svelte figures. They live here, imported
+   only by SeriesLayout, rather than in the components' own <style> blocks:
+   Astro bundles a hydrated island's component CSS into the stylesheet shared
+   by every page that queries a content collection, so scoped styles in those
+   components would ship to the whole site. Each figure's rules hang off its
+   root class (.anatomy, .wiring) to stay contained. */
+
+/* ---------- Figure 0.1, LayerAnatomy.svelte ---------- */
+.anatomy {
+  --cols: minmax(10rem, 13.5rem) minmax(0, 1fr) 4.25rem;
+  font-size: 0.875rem;
+}
+.anatomy .legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.9rem;
+}
+.anatomy .chip {
+  min-height: 32px;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--n-rule);
+  background: var(--n-surface);
+  color: var(--n-muted);
+  font-family: "Geist Mono", monospace;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.anatomy .chip[aria-pressed="true"] {
+  background: var(--n-accent-bg);
+  color: var(--n-text);
+  border-color: var(--n-accent);
+}
+.anatomy .cols {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0 0.75rem;
+  padding: 0 0.5rem 0.35rem calc(0.5rem + 3px);
+  color: var(--n-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.anatomy .cols span {
+  white-space: nowrap;
+}
+.anatomy .cols span:last-child {
+  text-align: right;
+}
+.anatomy .flow,
+.anatomy .flow ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.anatomy .item {
+  margin: 0;
+}
+.anatomy .row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0 0.75rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  color: var(--n-text);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.anatomy .row:hover {
+  background: color-mix(in srgb, var(--n-text) 5%, transparent);
+}
+.anatomy .row[aria-expanded="true"] {
+  background: var(--n-surface);
+  border-color: var(--n-rule);
+}
+.anatomy .name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.anatomy .label {
+  font-weight: 600;
+}
+.anatomy .op {
+  color: var(--n-muted);
+  font-size: 0.8rem;
+}
+.anatomy .track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.anatomy .bar {
+  display: block;
+  height: 10px;
+  background: var(--act);
+}
+.anatomy .bar.kv {
+  background: var(--kv);
+}
+.anatomy .bar.off {
+  background: repeating-linear-gradient(90deg, var(--act) 0 12px, transparent 12px 17px);
+}
+.anatomy .wlabel {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.74rem;
+  color: var(--n-muted);
+}
+.anatomy .cache {
+  color: var(--kv);
+  margin-left: 0.6em;
+}
+.anatomy .ai {
+  font-family: "Geist Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-weight: 600;
+}
+.anatomy .ai.bandwidth {
+  color: var(--w);
+}
+.anatomy .ai.compute {
+  color: var(--c);
+}
+.anatomy .ai.none {
+  color: var(--n-muted);
+  font-weight: 400;
+}
+.anatomy .item.lit > .row {
+  box-shadow: inset 3px 0 0 var(--n-accent);
+}
+.anatomy .item.faded > .row {
+  opacity: 0.4;
+}
+.anatomy .layer {
+  margin: 0.35rem 0;
+  padding: 0.55rem 0 0.35rem;
+  border: 1px solid var(--n-rule);
+  border-left: 3px solid var(--act);
+}
+.anatomy .layer-head {
+  margin: 0 0.6rem 0.45rem;
+  color: var(--n-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.anatomy .detail {
+  margin: 0 0 0.35rem;
+  padding: 0.6rem 0.75rem 0.75rem;
+  border: 1px solid var(--n-rule);
+  border-top: 0;
+  background: var(--n-surface);
+  line-height: 1.5;
+}
+.anatomy .detail dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.3rem 1rem;
+  margin: 0;
+}
+.anatomy .detail dl > div {
+  display: contents;
+}
+.anatomy .detail dt {
+  color: var(--n-muted);
+}
+.anatomy .detail dd {
+  margin: 0;
+}
+.anatomy .why {
+  margin: 0.6rem 0 0;
+  color: var(--n-muted);
+}
+.anatomy .totals {
+  margin: 0.85rem 0 0.4rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--n-muted);
+}
+.anatomy .totals strong {
+  color: var(--n-text);
+}
+@media (max-width: 560px) {
+  .anatomy {
+    --cols: minmax(0, 1fr) 3.5rem;
+  }
+  .anatomy .cols {
+    display: none;
+  }
+  .anatomy .row {
+    grid-template-areas:
+      "name ai"
+      "track track";
+  }
+  .anatomy .name {
+    grid-area: name;
+  }
+  .anatomy .ai {
+    grid-area: ai;
+  }
+  .anatomy .track {
+    grid-area: track;
+    margin-top: 0.35rem;
+  }
+  .anatomy .detail dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.1rem;
+  }
+  .anatomy .detail dd {
+    margin-bottom: 0.35rem;
+  }
+}
+
+/* ---------- Figure 0.3, HeadWiring.svelte ---------- */
+.wiring {
+  width: 100%;
+}
+.wiring svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.wiring .wire {
+  stroke: var(--n-muted);
+  stroke-width: 1.25;
+}
+.wiring .q {
+  fill: var(--act-soft);
+  stroke: var(--act);
+}
+.wiring .kv {
+  fill: var(--kv-soft);
+  stroke: var(--kv);
+}
+.wiring .lab {
+  fill: var(--n-text);
+  font-size: 12px;
+  text-anchor: middle;
+  font-family: "Geist Mono", monospace;
+}
+.wiring .cap {
+  fill: var(--n-muted);
+  font-size: 12px;
+}

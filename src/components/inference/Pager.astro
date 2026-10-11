@@ -1,0 +1,30 @@
+---
+// Previous / next through the series: index, chapters 0-7, then appendices.
+import { CHAPTERS, SERIES, chapterUrl, type ChapterInfo } from '../../lib/inference/series';
+
+interface Props {
+	current?: ChapterInfo;
+	written: string[];
+}
+
+const { current, written } = Astro.props;
+type Stop = { label: string; href?: string };
+const stops: Stop[] = [
+	{ label: SERIES.title, href: SERIES.base },
+	...CHAPTERS.map((c) => ({
+		label: `${c.n} · ${c.short}`,
+		href: written.includes(c.slug) ? chapterUrl(c.slug) : undefined,
+	})),
+];
+const here = current ? CHAPTERS.findIndex((c) => c.slug === current.slug) + 1 : 0;
+const prev = here > 0 ? stops[here - 1] : undefined;
+const next = here < stops.length - 1 ? stops[here + 1] : undefined;
+---
+<nav class="pager" aria-label="Chapter navigation" data-pagefind-ignore>
+	{prev && (prev.href ? <a href={prev.href}><span class="dir">← previous</span>{prev.label}</a> : <span class="unwritten"><span class="dir">← previous</span>{prev.label}</span>)}
+	{next && (next.href ? (
+		<a class="next" href={next.href}><span class="dir">next →</span>{next.label}</a>
+	) : (
+		<span class="unwritten next"><span class="dir">next, not written yet</span>{next.label}</span>
+	))}
+</nav>

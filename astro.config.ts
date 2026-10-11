@@ -8,6 +8,11 @@ import sitemap from '@astrojs/sitemap';
 import spectre from './package/src';
 
 import node from '@astrojs/node';
+import svelte from '@astrojs/svelte';
+import rehypeKatex from 'rehype-katex';
+import remarkMath from 'remark-math';
+import remarkMermaid from './src/lib/remark-mermaid.mjs';
+import rehypeMathNowrap from './src/lib/rehype-math-nowrap.mjs';
 import { spectreDark } from './src/ec-theme';
 
 const {
@@ -28,11 +33,19 @@ const config = defineConfig({
   // 404, and every canonical tag, og:url and sitemap entry pointed there.
   site: 'https://nithinap.netlify.app',
   output: 'static',
+  // $…$ and $$…$$ become KaTeX HTML at build time, and ```mermaid fences become
+  // inline SVG; both run before expressive-code sees the code blocks. MDX
+  // inherits these plugins.
+  markdown: {
+    remarkPlugins: [remarkMath, remarkMermaid],
+    rehypePlugins: [rehypeKatex, rehypeMathNowrap],
+  },
   integrations: [
     expressiveCode({
       themes: [spectreDark],
     }),
     mdx(),
+    svelte(),
     sitemap(),
     spectre({
       name: 'Nithin Athrapulikkal',

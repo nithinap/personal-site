@@ -1,0 +1,67 @@
+---
+// Reading layout for the LLM inference series: the site's navbar and metadata,
+// then a single prose column with the contents in the left margin.
+import '../styles/reset.css';
+import '../styles/globals.css';
+import 'katex/dist/katex.min.css';
+import '../styles/series.css';
+import '../styles/figures.css';
+
+import BaseHead from '../components/BaseHead.astro';
+import Navbar from '../components/Navbar.astro';
+
+interface Props {
+	title: string;
+	description?: string;
+	image?: ImageMetadata;
+	article?: { createdAt: Date; updatedAt?: Date };
+}
+
+const { title, description, image, article } = Astro.props;
+---
+<!doctype html>
+<html lang="en" class="series-root">
+	<head>
+		<BaseHead title={title} description={description} image={image} article={article}>
+			<script is:inline>
+				// Resolve the palette before first paint: the reader's pick if
+				// they made one, otherwise their system's preference.
+				(function () {
+					var root = document.documentElement;
+					root.classList.add('js');
+					var KEY = 'series-theme';
+					var choice = null;
+					try { choice = localStorage.getItem(KEY); } catch (e) {}
+					if (choice !== 'light' && choice !== 'dark') choice = 'auto';
+					var mq = window.matchMedia('(prefers-color-scheme: light)');
+					function apply() {
+						root.dataset.theme = choice === 'auto' ? (mq.matches ? 'light' : 'dark') : choice;
+						root.dataset.themeChoice = choice;
+					}
+					apply();
+					mq.addEventListener('change', function () { if (choice === 'auto') apply(); });
+					window.__seriesTheme = {
+						get: function () { return choice; },
+						set: function (next) {
+							choice = next;
+							try { next === 'auto' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, next); } catch (e) {}
+							apply();
+							document.dispatchEvent(new CustomEvent('series-theme'));
+						},
+					};
+				})();
+			</script>
+		</BaseHead>
+	</head>
+	<body class="series">
+		<main>
+			<Navbar />
+			<div class="reading-grid">
+				<slot name="rail" />
+				<article class="col" data-pagefind-body>
+					<slot />
+				</article>
+			</div>
+		</main>
+	</body>
+</html>

@@ -77,6 +77,12 @@ const projects = defineCollection({
     date: z.coerce.date(),
     image: image(),
     link: z.string().url().optional(),
+    // Drafts are built by `astro dev` and by `SHOW_DRAFTS=1 astro build`, never
+    // by a plain production build.
+    draft: z.boolean().optional().default(false),
+    // A series has its own route under src/pages/projects/<id>/ instead of
+    // the single-page [project].astro.
+    series: z.boolean().optional().default(false),
     info: z.array(
       z.object({
         text: z.string(),
@@ -87,4 +93,16 @@ const projects = defineCollection({
   })
 });
 
-export const collections = { tags, posts, projects, other, quickInfo, socials, workExperience };
+// Chapters of the LLM inference series. Order, numbers and titles live in
+// src/lib/inference/series.ts; a file here supplies a chapter's body.
+const inference = defineCollection({
+  loader: glob({ base: "src/content/inference", pattern: "**/*.{md,mdx}" }),
+  schema: z.object({
+    description: z.string(),
+    prerequisites: z.string().optional(),
+    symbols: z.array(z.object({ sym: z.string(), meaning: z.string() })).default([]),
+    updatedAt: z.coerce.date().optional(),
+  })
+});
+
+export const collections = { tags, posts, projects, inference, other, quickInfo, socials, workExperience };

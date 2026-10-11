@@ -1,0 +1,14 @@
+---
+// A numbered figure: the drawing, then "Figure n. Title. Takeaway."
+// Figures are left out of search results, so results show prose.
+interface Props {
+	n: string;
+	title: string;
+}
+const { n, title } = Astro.props;
+const id = `fig-${n.replace(/\./g, '-')}`;
+---
+<figure class="fig" id={id} data-pagefind-ignore>
+	<slot />
+	<figcaption><strong>Figure {n}. {title}</strong> <slot name="caption" /></figcaption>
+</figure>

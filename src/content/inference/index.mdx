@@ -1,0 +1,61 @@
+---
+description: "Interactive notes that work out how fast a language model can answer from four numbers: the model's bytes and FLOPs, and the chip's memory bandwidth and compute."
+---
+import ChapterList from '../../components/inference/ChapterList.astro';
+
+<p class="lede">How long does a language model take to answer? This series works it out from four numbers. Two describe the model: how many bytes of weights it has, and how many FLOPs it does per token. Two describe the chip: how fast it moves bytes out of memory, and how fast it does arithmetic. Each chapter derives one piece, with figures you can push on, and the last puts them together into an estimate for any model on any chip.</p>
+
+## The idea everything hangs on
+
+A reply is produced in two phases, and they run into different limits.
+
+1. **Writing each new token is limited by memory bandwidth.** Every step reads every weight in the model to produce one token per sequence, and with a single user does only about two FLOPs per two-byte weight it reads. The arithmetic finishes long before the bytes arrive, so a step takes about as long as reading the model's weights from memory.
+2. **Reading the prompt is limited by arithmetic.** The same weights are applied to every prompt token in one pass, so each byte read is used hundreds or thousands of times, and the chip's compute rate sets the pace.
+3. **Batching more users into each step is nearly free until the batch is about the chip's FLOPs-per-byte ratio**, around 230 on AWS Trainium2, because the weights are read once per step however many tokens use them. In practice the KV cache, which grows with every user and every token, usually runs out of memory first.
+
+## How the chapters connect
+
+```mermaid n="I.1" caption="The chain of reasoning. Each box is a chapter; the written ones link to their page." alt="A chain of boxes. The forward pass leads to parameters and FLOPs and to the KV cache. Those two and the chip's compute and bandwidth feed the roofline, which leads to latency. Latency and the KV cache lead to serving; latency leads to making it faster; serving and making it faster lead to a worked estimate."
+flowchart TD
+  c0["0 · The forward pass<br/>the model's shape"]
+  c1["1 · Parameters and FLOPs<br/>what one token costs"]
+  c2["2 · The KV cache<br/>bytes that grow per token"]
+  chip["The chip<br/>compute C, bandwidth W"]
+  c3{"3 · The roofline<br/>which limit wins"}
+  c4["4 · Latency<br/>decode, prefill, end to end"]
+  c5["5 · Serving<br/>batching and scheduling"]
+  c6["6 · Making it faster<br/>quantize, fuse, flash attention"]
+  c7["7 · A worked estimate<br/>any model, any chip"]
+  c0 --> c1
+  c0 --> c2
+  c1 --> c3
+  c2 --> c3
+  chip --> c3
+  c3 --> c4
+  c4 --> c5
+  c2 --> c5
+  c4 --> c6
+  c5 --> c7
+  c6 --> c7
+  click c0 "/projects/llm-inference/forward-pass/" "Chapter 0"
+```
+
+## The chapters
+
+<ChapterList />
+
+## Where to start
+
+- **Fifteen minutes:** the two phases at the end of chapter 0, the roofline plot in chapter 3, then the decode formula in chapter 4.
+- **An hour:** chapters 0, 2, 3 and 4.
+- **All of it:** about three hours, in order. Each chapter assumes only the ones before it.
+
+You need to be comfortable with matrix multiplication and logarithms. No machine-learning background is assumed: chapter 0 introduces every part of the model that the later chapters count.
+
+## About these pages
+
+The figures compute their numbers from one small TypeScript module, which is tested against the worked examples in the text. Diagrams are Mermaid, charts are Observable Plot and the interactive figures are Svelte. All of them render when the site is built, so the pages also read with JavaScript off. Hardware figures come from vendors' public documentation and are linked where they are used.
+
+The series leans most on kipply's [Transformer Inference Arithmetic](https://kipp.ly/transformer-inference-arithmetic/), Austin et al.'s [How To Scale Your Model](https://jax-ml.github.io/scaling-book/), Horace He's [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html) and Databricks' [LLM Inference Performance Engineering](https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices).
+
+Views are my own.

@@ -1,0 +1,71 @@
+---
+// /projects/llm-inference/ and /projects/llm-inference/<chapter>/.
+// Bodies come from src/content/inference/ (index.mdx is the series home);
+// structure and titles come from src/lib/inference/series.ts.
+import { getCollection, getEntry, render, type CollectionEntry } from 'astro:content';
+import type { GetStaticPaths } from 'astro';
+import SeriesLayout from '../../../layouts/SeriesLayout.astro';
+import SeriesContents from '../../../components/inference/SeriesContents.astro';
+import Pager from '../../../components/inference/Pager.astro';
+import { CHAPTERS, MAIN_CHAPTER_COUNT, SERIES, chapterBySlug } from '../../../lib/inference/series';
+import { exprHtml } from '../../../lib/inference/notation';
+import { isVisible } from '../../../lib/projects';
+
+export const getStaticPaths = (async () => {
+	const project = await getEntry('projects', 'llm-inference');
+	if (!project || !isVisible(project)) return [];
+	const entries = await getCollection('inference');
+	for (const e of entries) {
+		if (e.id !== 'index' && !chapterBySlug(e.id)) {
+			throw new Error(`src/content/inference/${e.id}: not a chapter slug in src/lib/inference/series.ts`);
+		}
+	}
+	return entries.map((entry) => ({
+		params: { chapter: entry.id === 'index' ? undefined : entry.id },
+		props: { entry },
+	}));
+}) satisfies GetStaticPaths;
+
+interface Props {
+	entry: CollectionEntry<'inference'>;
+}
+
+const { entry } = Astro.props;
+const project = (await getEntry('projects', 'llm-inference'))!;
+const written = (await getCollection('inference')).map((e) => e.id).filter((id) => id !== 'index');
+const chapter = entry.id === 'index' ? undefined : chapterBySlug(entry.id)!;
+const { Content, headings } = await render(entry);
+const h2s = headings.filter((h) => h.depth === 2).map(({ slug, text }) => ({ slug, text }));
+
+const pageTitle = chapter ? `${chapter.title} · ${SERIES.title}` : SERIES.title;
+const kicker = chapter
+	? `${SERIES.title} · ${chapter.appendix ? 'appendix' : 'chapter'} ${chapter.n}`
+	: `A series in ${MAIN_CHAPTER_COUNT} chapters and ${CHAPTERS.length - MAIN_CHAPTER_COUNT} appendices`;
+---
+<SeriesLayout
+	title={pageTitle}
+	description={entry.data.description}
+	image={project.data.image}
+	article={{ createdAt: project.data.date, updatedAt: entry.data.updatedAt }}
+>
+	<SeriesContents slot="rail" variant="rail" current={chapter} written={written} headings={h2s} />
+	<SeriesContents variant="mobile" current={chapter} written={written} headings={h2s} />
+	<header class="chapter-head">
+		<p class="kicker">{kicker}</p>
+		<h1 id="_top">{chapter ? chapter.title : SERIES.title}</h1>
+		{chapter && <p class="outcome"><strong>After this page</strong> you can {chapter.outcome}</p>}
+		{entry.data.prerequisites && <p class="prereq"><strong>You need:</strong> {entry.data.prerequisites}</p>}
+		{entry.data.symbols.length > 0 && (
+			<ul class="symbols" aria-label="Symbols introduced on this page">
+				{entry.data.symbols.map((s) => (
+					<li><b set:html={exprHtml(s.sym)} />{s.meaning}</li>
+				))}
+			</ul>
+		)}
+	</header>
+	<div class="prose">
+		<Content />
+	</div>
+	<Pager current={chapter} written={written} />
+</SeriesLayout>
+<script src="../../../scripts/toc.ts"></script>

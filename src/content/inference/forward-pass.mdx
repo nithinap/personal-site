@@ -1,0 +1,206 @@
+---
+description: One transformer forward pass with every tensor drawn to scale and every symbol where it applies, plus what attention, heads, the gated MLP and the two phases of generation are, before any counting.
+prerequisites: Nothing beyond the idea of a matrix multiply. If you know that multiplying a vector of width m by an m × n table of weights gives a vector of width n, you have everything this page uses.
+symbols:
+  - { sym: "L", meaning: "layers" }
+  - { sym: "d", meaning: "stream width" }
+  - { sym: "F", meaning: "MLP width" }
+  - { sym: "N", meaning: "query heads" }
+  - { sym: "K", meaning: "key/value heads" }
+  - { sym: "g", meaning: "N/K" }
+  - { sym: "H", meaning: "head width" }
+  - { sym: "V", meaning: "vocabulary" }
+  - { sym: "t", meaning: "1 if tied, else 2" }
+  - { sym: "B", meaning: "sequences" }
+  - { sym: "T", meaning: "prompt tokens" }
+  - { sym: "S", meaning: "cached tokens" }
+  - { sym: "T_tok", meaning: "rows per step" }
+---
+import Fig from '../../components/inference/Fig.astro';
+import LayerAnatomy from '../../components/inference/LayerAnatomy.svelte';
+import AttentionPicture from '../../components/inference/AttentionPicture.svelte';
+import HeadWiring from '../../components/inference/HeadWiring.svelte';
+import PhasesPicture from '../../components/inference/PhasesPicture.svelte';
+import PlotSvg from '../../components/inference/PlotSvg.astro';
+import SymbolTable from '../../components/inference/SymbolTable.astro';
+import { activations } from '../../figures/activations.ts';
+
+<p class="lede">A language model writes one token at a time, and each token is one pass through the same stack of layers. Nearly everything this series computes, from the parameter count to the speed limit, is a property of that one pass. So before counting anything, this page draws the pass whole, with every symbol sitting where it applies.</p>
+
+## Tokens in, token out
+
+A tokenizer turns text into integer ids from a vocabulary of $V$ entries; Llama 3's has 128,256. The **embedding table**, $V \times d$, turns each id into a vector of width $d$: 8,192 numbers for Llama 3 70B. That vector is the token's state, and the rest of the model is arithmetic on it.
+
+The state then passes through $L$ layers, 80 of them in Llama 3 70B. It is called the **residual stream** because no layer replaces it: each one reads it, computes something, and adds the result back. After the last layer, a final norm and the **output projection** `lm_head`, $d \times V$, turn the state into one score per vocabulary entry, the logits, and sampling picks the next token from them.
+
+Some models reuse the embedding table as the output projection. Their embeddings are *tied*, stored once, and $t = 1$. Llama 3 70B keeps the two separate, so $t = 2$ and they hold $2Vd$, 2.1 billion parameters: 3% of the model.
+
+## One layer, every tensor in place
+
+Every layer has the same two halves. **Attention** is where tokens read each other; the **MLP** works on each token alone. Each half reads a normalised copy of the residual stream and adds its output back. The normalisation, RMSNorm, divides the vector by its root-mean-square and applies a learned scale per element.
+
+Figure 0.1 lists every step of one forward pass. Each bar is as long as the vector that step produces for one token, all on one scale, so you can see that the MLP is 3.5 times as wide as the stream and that keys and values are an eighth as wide as queries.
+
+<Fig n="0.1" title="One forward pass, every tensor in place.">
+  <LayerAnatomy client:visible />
+  <Fragment slot="caption">Bars are to scale; striped bars run off it. Select a step for its parameters, FLOPs, bytes and FLOPs per byte, or a symbol to light up every step it appears in. Bytes assume each step reads its inputs from memory and writes its output back, except attention, counted as one fused kernel that reads each key and value once, its best case. Chapter 6 is where fusion removes most of that traffic.</Fragment>
+</Fig>
+
+Three things to notice before going on:
+
+- **The MLP is most of the model.** Its three matrices, each $d \times F$ with $F = 3.5d$, hold 705 million of a layer's 856 million parameters. Across the whole model that is 80% of $P$, the total parameter count.
+- **Keys and values are narrow, and they are the only tensors that outlive the step.** Llama 3 70B computes 64 query heads but only 8 key and value heads; the section on heads below explains the wiring. Each token's keys and values go into the **KV cache** and are read again by every later token. Nothing else is kept.
+- **The right-hand column changes with the phase.** It is the step's arithmetic intensity: FLOPs done per byte moved to or from memory. In prefill the matmuls do hundreds to over a thousand; switch the figure to decode and the same matmuls do about one. Chapter 3 shows why that number sets the speed, and the last section of this page says what the two phases are.
+
+## Attention in one picture
+
+Attention is how a token reads the tokens before it. Each token's state is projected three ways: a **query** $q$, what this token is looking for; a **key** $k$, what it offers to other tokens' queries; and a **value** $v$, what it hands over when a query picks it.
+
+Token $i$ scores each token $j$ by the dot product of its query with $j$'s key, divided by $\sqrt{H}$ so that wider heads don't produce larger scores and push softmax into always picking one token. A causal mask removes every $j > i$, so no token sees its future. Softmax turns the remaining scores into weights that are positive and sum to 1, and the output is the weighted sum of the values:
+
+$$
+o_i \;=\; \sum_{j \le i} a_{ij}\, v_j,
+\qquad
+a_{ij} \;=\; \frac{\exp\!\big(q_i \cdot k_j / \sqrt{H}\big)}{\sum_{j' \le i} \exp\!\big(q_i \cdot k_{j'} / \sqrt{H}\big)}
+$$
+
+<Fig n="0.2" title="Attention for one token.">
+  <AttentionPicture />
+  <Fragment slot="caption">Each row is one token's query scored against every key, and the mask hides the future. Row 5's scores become weights that mix the values into its output.</Fragment>
+</Fig>
+
+Two facts in this picture carry the rest of the series. A token's key and value depend only on that token and the ones before it, so once computed they never change; that is why they can be cached, the subject of chapter 2. And the scores cost FLOPs that grow with the number of earlier tokens but use no parameters. That is the term the "FLOPs are twice the parameters" rule leaves out, in chapter 1.
+
+**Where position comes in.** As written, attention ignores order: shuffle the earlier tokens and the weighted sum comes out the same. Llama, like most current models, uses rotary position embeddings (RoPE; Su et al., 2021). Before the dot product, $q$ and $k$ are rotated through angles proportional to their positions, so position enters $q_i \cdot k_j$ only through the distance $i - j$. Values aren't rotated, and RoPE has no parameters. It matters again in chapter 2, because one way of shrinking the cache has to work around it.
+
+## Heads
+
+A single attention over width-$d$ vectors lets each token look at the others in only one way. **Multi-head attention** (Vaswani et al., 2017) runs $N$ attentions side by side, each with its own query, key and value of width $H$. Usually $N \cdot H = d$, as in Llama 3 70B's 64 heads of 128. Each head attends on its own, and the output projection $W_O$, $NH \times d$, mixes their outputs back into the stream.
+
+In the original transformer every query head had its own key and value head, $K = N$, and that is what MHA means when it is set against the two variants that follow. Shazeer (2019) proposed **multi-query attention** (MQA): all the query heads share a single key and value head, $K = 1$. **Grouped-query attention** (GQA; Ainslie et al., 2023) sits between them. The query heads split into $K$ groups, and the $g = N/K$ heads in each group share one key and value head. Llama 3 uses $K = 8$ at every size, so $g$ is 4 for 8B, 8 for 70B and 16 for 405B. The GQA paper calls the number of groups $G$; it is the same number as $K$ here, named for the key/value heads because they are what sets the size of the cache.
+
+<Fig n="0.3" title="Query heads and key/value heads.">
+  <HeadWiring client:visible />
+  <Fragment slot="caption">Drawn with eight query heads. Llama 3 70B's 64 query heads and 8 key/value heads are the K = 1 picture repeated eight times. Fewer key/value heads change what is stored, not how many queries attend.</Fragment>
+</Fig>
+
+Why give up key/value heads? Because keys and values are what the cache holds, and every decode step reads the whole cache. Halving $K$ halves those bytes. Chapter 2 puts numbers on the saving, and on what it costs in quality.
+
+## The MLP, from ReLU to SwiGLU
+
+The other half of the layer touches each token alone: no token reads another here. The original transformer's feed-forward network widens the vector from $d$ to $F$, applies a nonlinearity, and narrows it back:
+
+$$
+\mathrm{FFN}(x) = \max(0,\; x W_1)\, W_2
+$$
+
+That is two matrices, so $2dF$ parameters. A **gated** MLP replaces the first matrix with two that run in parallel. One output goes through an activation function and then multiplies the other element by element, so it acts as a gate on each of the $F$ channels. **SwiGLU** (Shazeer, 2020) uses SiLU, $x \cdot \sigma(x)$, as the gate's activation:
+
+$$
+\mathrm{FFN}_{\mathrm{SwiGLU}}(x) = \big(\mathrm{SiLU}(x W_{\mathrm{gate}}) \odot x W_{\mathrm{up}}\big)\, W_{\mathrm{down}}
+$$
+
+<Fig n="0.4" title="An ungated MLP and a gated one.">
+<div class="fig-pair">
+
+```mermaid bare="true" phone="same"
+flowchart LR
+  subgraph ffn["Ungated"]
+    direction TB
+    x1["x, width d"] --> w1["W₁: d × F"]
+    w1 --> relu["ReLU"]
+    relu --> w2["W₂: F × d"]
+  end
+  subgraph glu["Gated: SwiGLU"]
+    direction TB
+    x2["x, width d"] --> wg["W_gate: d × F"]
+    x2 --> wu["W_up: d × F"]
+    wg --> silu["SiLU"]
+    silu --> mul(("⊙"))
+    wu --> mul
+    mul --> wd["W_down: F × d"]
+  end
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  class w1,w2,wg,wu,wd w
+```
+
+<PlotSvg render={activations} width={288} label="ReLU and SiLU for x from minus 4 to 4. ReLU is zero for negative x and equal to x for positive x. SiLU follows it closely but is smooth at zero and dips slightly below zero for negative x." />
+</div>
+  <Fragment slot="caption">Left, the original transformer's and GPT-2's MLP; right, the gated one Llama, Mistral and DeepSeek use. Amber boxes are weight matrices: the gated MLP has three, so it needs a narrower F for the same parameter count. Inset: SiLU is a smooth ReLU that lets small negative values through.</Fragment>
+</Fig>
+
+Three matrices make it $3dF$ parameters rather than $2dF$, a common mistake when counting a modern model's parameters. Why gate at all? Shazeer's experiments found better quality than ReLU or GELU for the same parameters and compute, and he didn't claim to know why: "We offer no explanation as to why these architectures seem to work; we attribute their success, as all else, to divine benevolence." Llama, Mistral and DeepSeek all use it.
+
+**Why $F$ isn't a constant.** To cost what the ungated MLP of width $4d$ did, a gated one with three matrices must narrow to $F = \tfrac{2}{3} \cdot 4d = \tfrac{8}{3}d$, since $3 \cdot d \cdot \tfrac{8}{3}d = 2 \cdot d \cdot 4d$. Llama 2 used exactly that, rounded up to a multiple of 256: 11,008 for $d$ = 4,096. Meta's Llama 3 code multiplies it by a further 1.3 (1.2 for 405B) and rounds up to a multiple of 1,024 or 4,096, which lands on exactly $3.5d$ for 8B and 70B and $3.25d$ for 405B. So the ratio $r = F/d$ that appears in the parameter formulas is a design choice, to be read from the config, not a law.
+
+## Two phases
+
+Producing a reply has two phases with very different shapes.
+
+**Prefill** runs the whole prompt through the stack in one pass. With $B$ sequences of $T$ tokens, every matrix multiply in the layers has $T_\text{tok} = B \cdot T$ rows. At every layer it writes a key and a value for each prompt token into the cache, and at the end it produces the first output token.
+
+**Decode** then produces one token per sequence per step, so $T_\text{tok} = B$ rows. Each step reads the cache built so far, appends one more key and value per sequence, and emits one more token, $n_\text{out} - 1$ times in all.
+
+<Fig n="0.5" title="Prefill and decode.">
+  <PhasesPicture />
+  <Fragment slot="caption">The same weights serve both phases. Prefill uses each weight for B·T rows once it has been read; decode reads every weight, and the whole cache, again for every B rows.</Fragment>
+</Fig>
+
+The weights are the same in both phases. What changes is how many rows each weight is used for once it has been read from memory: thousands in prefill, $B$ in decode. That one difference is why prefill is limited by arithmetic and decode by memory bandwidth, which is where chapters 2 and 3 pick up. You can already see it in Figure 0.1: switch the phase and watch the right-hand column.
+
+## Symbol reference
+
+<details class="check">
+<summary>Model-shape and workload symbols, with the values for each preset</summary>
+
+<SymbolTable />
+
+</details>
+
+<div class="takeaways">
+
+## Key takeaways
+
+1. A model makes each token with one pass through $L$ identical layers. Each layer is attention, where tokens read each other, then a gated MLP that works on each token alone, and both add into a residual stream of width $d$.
+2. Keys and values are the only tensors kept after the step. Their width is set by $K$, the number of key/value heads, which GQA and MQA reduce while keeping all $N$ query heads.
+3. Prefill pushes $B \cdot T$ rows through each weight, decode only $B$. The weights and the FLOPs per token are the same; the arithmetic per byte read is not.
+
+</div>
+
+## Check yourself
+
+<details class="check">
+<summary>In a Llama 3 70B layer, which tensors are $K \cdot H$ = 1,024 wide, and why only those?</summary>
+
+The outputs of the key and value projections, which are what the cache stores. The 64 query heads share 8 key/value heads in groups of $g = 8$, so keys and values are an eighth as wide as queries. Every other tensor is $d$, $NH$ or $F$ wide.
+
+</details>
+
+<details class="check">
+<summary>Why does a SwiGLU MLP have three weight matrices, and what does that do to the parameter count?</summary>
+
+The gate and up projections run side by side and are multiplied element by element before the down projection. That is $3dF$ parameters instead of $2dF$, which is why gated models narrow $F$ to about $\tfrac{8}{3}d$ to stay the same size, before any extra widening like Llama 3's.
+
+</details>
+
+<details class="check">
+<summary>Sixteen users are mid-reply and the server runs one decode step for all of them. What is $T_\text{tok}$?</summary>
+
+16. Decode adds one token per sequence per step, so $T_\text{tok} = B$. Had all sixteen just sent 1,000-token prompts and been prefilled together, it would have been $B \cdot T$ = 16,000.
+
+</details>
+
+## Sources
+
+<div class="sources">
+
+- Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (2017): scaled dot-product attention and multi-head attention.
+- Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019): multi-query attention.
+- Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) (2023): grouped-query attention.
+- Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020): SwiGLU, the two-thirds width rule, and the quote.
+- Su et al., [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864) (2021): RoPE.
+- Zhang and Sennrich, [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) (2019): RMSNorm.
+- Meta's Llama 3 [reference model code](https://github.com/meta-llama/llama3/blob/main/llama/model.py) and [model configurations](https://github.com/meta-llama/llama-models/blob/main/models/sku_list.py): the MLP width rule and the Llama 3 shapes. The Llama 2 7B, Llama 2 13B and Llama 3 70B shapes and untied embeddings are from their published configs ([7B](https://huggingface.co/meta-llama/Llama-2-7b-hf), [13B](https://huggingface.co/meta-llama/Llama-2-13b-hf), [70B](https://huggingface.co/meta-llama/Meta-Llama-3-70B)).
+- The ridge of about 230 FLOPs per byte in Figure 0.1 is Trainium2's 667 TFLOP/s of bf16 compute over its 2.9 TB/s of memory bandwidth, from the [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html).
+
+</div>

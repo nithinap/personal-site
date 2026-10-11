@@ -1,0 +1,794 @@
+/* The LLM inference series: a reading column with the contents in the left
+   margin, in the site's dark palette or a light one.
+
+   Every colour is a variable, so the figures (Mermaid SVG, Plot SVG, Svelte)
+   restyle with the page. Dark is the default. The light palette applies when
+   the reader picks it, or when their system asks for light and they haven't
+   picked; the head script resolves that before first paint, and the media
+   query covers readers with JavaScript off.
+
+   Meaning colours are claims, used the same way in every figure:
+   amber = weights and HBM bytes, violet = the KV cache, green = compute and
+   FLOPs, cyan = activations, red = waste and idle time. */
+
+html.series-root {
+  --n-page: #0b0b0b;
+  --n-surface: #121212;
+  --n-raised: #181818;
+  --n-rule: #353535;
+  --n-text: #e8e8e8;
+  --n-muted: #a8a8a8;
+  --n-accent: #0fb752;
+  --n-accent-bg: rgba(15, 183, 82, 0.22);
+  --n-nav-active: #0fb752;
+  --n-link: #59fb64;
+  --n-link-hover: #60ff6a;
+  --n-code-bg: #1d1d1d;
+  --n-note-bg: rgba(15, 183, 82, 0.1);
+  --w: #e0a243;
+  --w-soft: #2e2414;
+  --kv: #a78bfa;
+  --kv-soft: #241d36;
+  --c: #0fb752;
+  --c-soft: #0f2a1a;
+  --act: #38bdf8;
+  --act-soft: #0b2633;
+  --waste: #f87171;
+  --waste-soft: #3a1717;
+  color-scheme: dark;
+  background-color: var(--n-page);
+}
+
+/* Light palette, twice: once for an explicit or script-resolved choice, once
+   for readers with JavaScript off whose system prefers light. Keep in sync. */
+html.series-root[data-theme="light"] {
+  --n-page: #fbfaf7;
+  --n-surface: #ffffff;
+  --n-raised: #f4f2ec;
+  --n-rule: #e0dcd2;
+  --n-text: #1f1e1c;
+  --n-muted: #5e5b55;
+  --n-accent: #0a7a3a;
+  --n-accent-bg: rgba(10, 122, 58, 0.14);
+  --n-nav-active: #0a7a3a;
+  --n-link: #0a6b33;
+  --n-link-hover: #064d24;
+  --n-code-bg: #f1eee7;
+  --n-note-bg: #eef6ef;
+  --w: #a35f00;
+  --w-soft: #fbeedb;
+  --kv: #6a45d0;
+  --kv-soft: #eee8fd;
+  --c: #0a7a3a;
+  --c-soft: #e1f2e7;
+  --act: #0369a1;
+  --act-soft: #e0f2fe;
+  --waste: #b91c1c;
+  --waste-soft: #fde2e2;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  html.series-root:not([data-theme]) {
+    --n-page: #fbfaf7;
+    --n-surface: #ffffff;
+    --n-raised: #f4f2ec;
+    --n-rule: #e0dcd2;
+    --n-text: #1f1e1c;
+    --n-muted: #5e5b55;
+    --n-accent: #0a7a3a;
+    --n-accent-bg: rgba(10, 122, 58, 0.14);
+    --n-nav-active: #0a7a3a;
+    --n-link: #0a6b33;
+    --n-link-hover: #064d24;
+    --n-code-bg: #f1eee7;
+    --n-note-bg: #eef6ef;
+    --w: #a35f00;
+    --w-soft: #fbeedb;
+    --kv: #6a45d0;
+    --kv-soft: #eee8fd;
+    --c: #0a7a3a;
+    --c-soft: #e1f2e7;
+    --act: #0369a1;
+    --act-soft: #e0f2fe;
+    --waste: #b91c1c;
+    --waste-soft: #fde2e2;
+    color-scheme: light;
+  }
+}
+
+/* Figures read the page's colours. */
+body.series {
+  --fig-bg: var(--n-page);
+  --fig-fg: var(--n-text);
+  --fig-line: var(--n-muted);
+  --fig-accent: var(--n-accent);
+  --fig-muted: var(--n-muted);
+  --fig-surface: color-mix(in srgb, var(--n-text) 4%, var(--n-page));
+  --fig-border: var(--n-rule);
+  color: var(--n-text);
+  background-color: var(--n-page);
+  font-family: "Geist", Arial, Helvetica, sans-serif;
+}
+
+body.series main {
+  gap: 0;
+}
+
+body.series :focus-visible {
+  outline: 2px solid var(--n-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- the site navbar, recoloured from the palette ----------
+   In the dark palette these resolve to the navbar's own colours. */
+html.series-root body.series nav a.active,
+html.series-root body.series nav a:hover,
+html.series-root body.series nav a:focus-visible,
+html.series-root body.series #search:focus {
+  background-color: var(--n-nav-active);
+  color: #ffffff;
+}
+html.series-root body.series #search::placeholder {
+  color: var(--n-text);
+}
+html.series-root body.series #search-results {
+  background-color: var(--n-raised);
+  border-color: var(--n-rule);
+}
+html.series-root body.series #search-results a {
+  color: var(--n-text) !important;
+}
+html.series-root body.series .mobile-nav-toggle {
+  background-color: var(--n-surface);
+  border-color: var(--n-rule);
+  color: var(--n-text);
+}
+html.series-root body.series nav.active,
+html.series-root body.series nav.active ul {
+  background-color: var(--n-raised);
+}
+html.series-root body.series nav ul li {
+  border-color: var(--n-rule);
+}
+
+/* ---------- layout: a reading column, contents in the left margin ---------- */
+.reading-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 42rem) minmax(0, 1fr);
+  gap: 0 2.5rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+}
+.reading-grid > .rail {
+  grid-column: 1;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(13rem, 100%);
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+}
+.reading-grid > .col {
+  grid-column: 2;
+  min-width: 0;
+}
+/* Figures run a little wider than the prose on desktop, by exactly the column
+   gap, so a wide figure never slides under the contents rail. */
+.col .fig,
+.col .wide {
+  margin-inline: -2.5rem;
+}
+.toc-mobile {
+  display: none;
+}
+
+/* Margin notes need about 16.5rem of right margin. */
+.col .note {
+  float: right;
+  clear: right;
+  width: 14rem;
+  margin: 0.25rem -16.5rem 1rem 0;
+}
+@media (max-width: 1319px) {
+  .col .note {
+    float: none;
+    width: auto;
+    margin: 1.25rem 0;
+  }
+}
+
+@media (max-width: 1239px) {
+  .reading-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 1rem 1rem 3rem;
+  }
+  .reading-grid > .rail {
+    display: none;
+  }
+  .reading-grid > .col {
+    grid-column: 1;
+    max-width: 42rem;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .col .fig,
+  .col .wide {
+    margin-inline: 0;
+  }
+  .toc-mobile {
+    display: block;
+  }
+}
+
+/* ---------- contents rail ---------- */
+.rail {
+  font-size: 0.875rem;
+}
+.rail h2,
+.toc-mobile h2 {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n-muted);
+  margin: 0 0 0.5rem;
+}
+.rail ol,
+.toc-mobile ol {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+.rail a,
+.rail .unwritten,
+.toc-mobile a,
+.toc-mobile .unwritten {
+  display: block;
+  padding: 0.2rem 0.5rem;
+  color: var(--n-muted);
+  text-decoration: none;
+}
+.rail a:hover,
+.toc-mobile a:hover {
+  color: var(--n-text);
+  text-decoration: none;
+}
+.rail a[aria-current="page"],
+.toc-mobile a[aria-current="page"],
+.rail .toc-li a.active {
+  color: var(--n-text);
+  background: var(--n-accent-bg);
+}
+/* Written chapters read as links; unwritten ones stay muted, at full opacity
+   so they keep at least 4.5:1 contrast in both palettes. */
+.rail .chapters a,
+.toc-mobile .chapters a {
+  color: var(--n-text);
+}
+.rail .chapters a:hover,
+.toc-mobile .chapters a:hover {
+  color: var(--n-link);
+}
+.rail .unwritten,
+.toc-mobile .unwritten {
+  color: var(--n-muted);
+}
+.rail .num,
+.toc-mobile .num {
+  font-family: "Geist Mono", monospace;
+  margin-right: 0.4rem;
+}
+.rail .home {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--n-muted);
+  padding: 0 0 0.5rem;
+  display: block;
+}
+
+.toc-mobile {
+  border: 1px solid var(--n-rule);
+  background: var(--n-surface);
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 1.5rem;
+  font-size: 0.9rem;
+}
+.toc-mobile summary {
+  cursor: pointer;
+  color: var(--n-muted);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.toc-mobile[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+/* Theme picker: only meaningful with JavaScript, so hidden without it. */
+.theme-switch {
+  display: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+html.js .theme-switch {
+  display: block;
+}
+.theme-switch legend {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--n-muted);
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+.theme-switch .options {
+  display: inline-flex;
+  border: 1px solid var(--n-rule);
+}
+.theme-switch label {
+  position: relative;
+  padding: 0.3rem 0.65rem;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--n-muted);
+}
+.theme-switch input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.theme-switch label:has(input:checked) {
+  background: var(--n-accent-bg);
+  color: var(--n-text);
+}
+.theme-switch label:has(input:focus-visible) {
+  outline: 2px solid var(--n-accent);
+  outline-offset: -2px;
+}
+
+/* ---------- chapter header ---------- */
+.chapter-head .kicker {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: var(--n-accent);
+  margin: 0 0 0.5rem;
+}
+.chapter-head h1 {
+  font-family: "Geist", Arial, sans-serif;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1.15;
+  margin: 0 0 1rem;
+  color: var(--n-text);
+}
+.chapter-head .outcome,
+.chapter-head .prereq {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--n-muted);
+  margin: 0 0 0.6rem;
+}
+.chapter-head .prereq strong,
+.chapter-head .outcome strong {
+  color: var(--n-text);
+  font-weight: 600;
+}
+.symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0 1.75rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+.symbols li {
+  border: 1px solid var(--n-rule);
+  padding: 0.15rem 0.5rem;
+  color: var(--n-muted);
+  background: var(--n-surface);
+}
+.symbols b {
+  color: var(--n-text);
+  font-family: "Geist Mono", monospace;
+  margin-right: 0.3rem;
+}
+
+/* ---------- prose ---------- */
+.prose {
+  line-height: 1.65;
+  font-size: 1.0625rem;
+}
+.prose h2,
+.prose h3 {
+  font-family: "Geist", Arial, sans-serif;
+  color: var(--n-text);
+  scroll-margin-top: 1.5rem;
+}
+.prose h2 {
+  font-size: 1.4rem;
+  line-height: 1.3;
+  margin: 2.75rem 0 0.75rem;
+}
+.prose h3 {
+  font-size: 1.1rem;
+  margin: 2rem 0 0.5rem;
+}
+.prose p {
+  margin: 0 0 1.1rem;
+}
+.prose p:last-of-type {
+  margin-bottom: 1.1rem;
+}
+.prose a {
+  color: var(--n-link);
+}
+.prose a:hover {
+  color: var(--n-link-hover);
+}
+.prose ul,
+.prose ol {
+  margin: 0 0 1.1rem;
+  padding-left: 1.4rem;
+}
+.prose li {
+  margin: 0.25rem 0;
+}
+.prose .lede {
+  font-size: 1.2rem;
+  line-height: 1.55;
+}
+.prose code:not(pre code) {
+  background: var(--n-code-bg);
+  color: var(--n-text);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.88em;
+}
+.prose strong {
+  font-weight: 650;
+}
+.prose hr {
+  border: 0;
+  height: 1px;
+  background: var(--n-rule);
+  margin: 2.5rem 0;
+}
+.prose blockquote {
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 2px solid var(--n-accent);
+  background: var(--n-note-bg);
+}
+.prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+.table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0 1.5rem;
+}
+.prose table {
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  width: 100%;
+}
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 0.4rem 1rem 0.4rem 0;
+  border-bottom: 1px solid var(--n-rule);
+  vertical-align: top;
+}
+.prose th {
+  color: var(--n-muted);
+  font-weight: 600;
+}
+.prose td.num,
+.prose th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* math */
+.prose .katex {
+  font-size: 1.08em;
+}
+.prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+  margin: 1.25rem 0;
+}
+
+/* ---------- notes, checks, takeaways, sources ---------- */
+.note {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: var(--n-note-bg);
+  color: var(--n-text);
+  border-left: 2px solid var(--n-accent);
+  padding: 0.75rem 1rem;
+}
+.note p {
+  margin: 0 0 0.5rem;
+}
+.note p:last-child {
+  margin: 0;
+}
+.note .src {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}
+.check {
+  border: 1px solid var(--n-rule);
+  background: var(--n-surface);
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+.check summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.check[open] summary {
+  margin-bottom: 0.5rem;
+}
+.check p:last-child {
+  margin-bottom: 0;
+}
+.takeaways {
+  border: 1px solid var(--n-rule);
+  border-left: 2px solid var(--n-accent);
+  background: var(--n-surface);
+  padding: 1rem 1.25rem 0.25rem;
+  margin: 1.5rem 0;
+}
+.takeaways h2 {
+  margin-top: 0;
+}
+.sources {
+  font-size: 0.9rem;
+  color: var(--n-muted);
+}
+.sources li {
+  margin: 0.4rem 0;
+}
+
+/* ---------- figures ---------- */
+.fig {
+  margin-block: 2rem;
+}
+.fig figcaption {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--n-muted);
+  margin-top: 0.75rem;
+}
+.fig figcaption strong {
+  color: var(--n-text);
+}
+.diagram-svg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.diagram-svg svg text {
+  font-family: "Geist", Arial, sans-serif;
+}
+.diagram-link:hover rect,
+.diagram-link:focus-visible rect {
+  stroke: var(--n-accent);
+  stroke-width: 2;
+}
+.diagram-narrow {
+  display: none;
+}
+@media (max-width: 640px) {
+  .diagram-wide {
+    display: none;
+  }
+  .diagram-narrow {
+    display: block;
+  }
+}
+
+/* Shared figure controls (Svelte figures use these classes). */
+.fig-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  font-size: 0.875rem;
+  margin: 0 0 0.75rem;
+}
+.fig-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--n-muted);
+}
+.fig-controls select {
+  min-height: 32px;
+  background: var(--n-surface);
+  color: var(--n-text);
+  border: 1px solid var(--n-rule);
+  padding: 0 0.4rem;
+}
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--n-rule);
+}
+.seg button {
+  min-height: 32px;
+  padding: 0.25rem 0.7rem;
+  color: var(--n-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"],
+.seg button[aria-checked="true"] {
+  background: var(--n-accent-bg);
+  color: var(--n-text);
+}
+.fig-button {
+  min-height: 32px;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--n-rule);
+  color: var(--n-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.fig-button:hover,
+.seg button:hover {
+  color: var(--n-text);
+}
+.fig-status {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--n-muted);
+  margin: 0 0 0.75rem;
+  min-height: 1.2em;
+}
+
+/* A figure made of two parts side by side, e.g. a diagram and an inset chart. */
+.fig-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem);
+  gap: 1rem 1.5rem;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .fig-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The series home's chapter list. */
+.chapter-list {
+  list-style: none;
+  padding: 0 !important;
+  margin: 1rem 0 1.5rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.chapter-list li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--n-rule);
+  margin: 0;
+}
+.chapter-list .num {
+  font-family: "Geist Mono", monospace;
+  color: var(--n-accent);
+  font-size: 1.05rem;
+}
+.chapter-list a,
+.chapter-list .title {
+  font-weight: 600;
+}
+.chapter-list .title {
+  color: var(--n-text);
+}
+.chapter-list .meta {
+  margin-left: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--n-muted);
+  white-space: nowrap;
+}
+.chapter-list p {
+  margin: 0.2rem 0 0 !important;
+  font-size: 0.92rem;
+  color: var(--n-muted);
+}
+.chapter-list li.unwritten .title {
+  color: var(--n-muted);
+}
+
+/* Static figures render a wide and a narrow drawing; CSS shows one. The
+   .fig prefix outranks a component's own `svg { display: block }`. */
+.fig .only-wide {
+  display: block;
+}
+.fig .only-narrow {
+  display: none;
+}
+@media (max-width: 600px) {
+  .fig .only-wide {
+    display: none;
+  }
+  .fig .only-narrow {
+    display: block;
+  }
+}
+.fig svg text {
+  font-family: "Geist", Arial, sans-serif;
+}
+
+/* Inline math stays on the line with the punctuation that follows it. */
+.nowrap {
+  white-space: nowrap;
+}
+
+/* Diagram boxes that link somewhere look it. */
+.diagram-link rect,
+.diagram-link polygon {
+  stroke: var(--n-accent);
+  stroke-width: 1.5;
+}
+.diagram-link {
+  cursor: pointer;
+}
+
+/* ---------- pager ---------- */
+.pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--n-rule);
+  font-size: 0.9rem;
+}
+.pager a,
+.pager .unwritten {
+  color: var(--n-link);
+  max-width: 48%;
+}
+.pager .unwritten {
+  color: var(--n-muted);
+}
+.pager .next {
+  text-align: right;
+  margin-left: auto;
+}
+.pager span.dir {
+  display: block;
+  color: var(--n-muted);
+  font-size: 0.75rem;
+}
+
+@media print {
+  .rail,
+  .toc-mobile,
+  .pager,
+  nav {
+    display: none !important;
+  }
+}

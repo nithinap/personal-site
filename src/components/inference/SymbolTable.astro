@@ -1,0 +1,61 @@
+---
+// Chapter 0's symbol reference, generated from the presets so the table can't
+// drift from the figures.
+import { MODEL_PRESETS } from '../../lib/inference/models';
+import { embeddingFactor, groupSize, params } from '../../lib/inference/formulas';
+import { count, int, sig3 } from '../../lib/inference/format';
+import { exprHtml } from '../../lib/inference/notation';
+
+const shape: { sym: string; meaning: string; value: (m: (typeof MODEL_PRESETS)[number]) => string }[] = [
+	{ sym: 'L', meaning: 'layers', value: (m) => int(m.L) },
+	{ sym: 'd', meaning: 'residual-stream width (hidden_size)', value: (m) => int(m.d) },
+	{ sym: 'F', meaning: 'MLP width (intermediate_size)', value: (m) => int(m.F) },
+	{ sym: 'r', meaning: 'F / d', value: (m) => sig3(m.F / m.d) },
+	{ sym: 'N', meaning: 'query heads', value: (m) => int(m.N) },
+	{ sym: 'K', meaning: 'key/value heads', value: (m) => int(m.K) },
+	{ sym: 'g', meaning: 'N / K, query heads per key/value head', value: (m) => sig3(groupSize(m)) },
+	{ sym: 'H', meaning: 'head width (head_dim)', value: (m) => int(m.H) },
+	{ sym: 'V', meaning: 'vocabulary size', value: (m) => int(m.V) },
+	{ sym: 't', meaning: '1 if lm_head reuses the embedding table, else 2', value: (m) => String(embeddingFactor(m)) },
+	{ sym: 'P', meaning: 'total parameters', value: (m) => count(params(m).total) },
+];
+const workload = [
+	['B', 'sequences in the batch'],
+	['T', 'prompt length, in tokens'],
+	['S', 'tokens already in the KV cache'],
+	['n_out', 'tokens generated'],
+	['T_tok', 'rows through each weight per step: B·T in prefill, B in decode'],
+];
+---
+<div class="table-wrap">
+	<table>
+		<thead>
+			<tr>
+				<th scope="col">Symbol</th>
+				<th scope="col">Meaning</th>
+				{MODEL_PRESETS.map((m) => <th scope="col" class="num">{m.name}</th>)}
+			</tr>
+		</thead>
+		<tbody>
+			{shape.map((row) => (
+				<tr>
+					<th scope="row" set:html={exprHtml(row.sym)} />
+					<td>{row.meaning}</td>
+					{MODEL_PRESETS.map((m) => <td class="num">{row.value(m)}</td>)}
+				</tr>
+			))}
+		</tbody>
+	</table>
+</div>
+<div class="table-wrap">
+	<table>
+		<thead>
+			<tr><th scope="col">Symbol</th><th scope="col">Workload</th></tr>
+		</thead>
+		<tbody>
+			{workload.map(([sym, meaning]) => (
+				<tr><th scope="row" set:html={exprHtml(sym)} /><td>{meaning}</td></tr>
+			))}
+		</tbody>
+	</table>
+</div>

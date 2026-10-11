@@ -10,6 +10,7 @@ import { render } from "astro:content";
 import { getCollection } from "astro:content";
 import ImageGlow from "../../components/ImageGlow.astro";
 import Icon from "../../components/Icon.astro";
+import { isVisible } from "../../lib/projects";
 
 interface Props {
   project: CollectionEntry<'projects'>;
@@ -18,7 +19,9 @@ interface Props {
 const { project } = Astro.props;
 
 export const getStaticPaths = (async () => {
-  const projects = await getCollection('projects');
+  // A series (e.g. llm-inference) is rendered by its own route under
+  // src/pages/projects/<id>/, so it must not also be generated here.
+  const projects = await getCollection('projects', (p) => isVisible(p) && !p.data.series);
 
   return projects.map((project) => ({ params: { project: project.id }, props: { project } }));
 }) satisfies GetStaticPaths;
