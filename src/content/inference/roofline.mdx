@@ -1,0 +1,240 @@
+---
+description: For any operation on any chip, which of the chip's two limits sets its speed and by how much, the batch at which decode stops waiting on memory, and the third regime the roofline leaves out.
+prerequisites: Chapter 0, in particular the two phases and Figure 0.2's FLOPs-per-byte column. Chapter 2's cache sizes come up but aren't needed.
+symbols:
+  - { sym: "C", meaning: "compute, FLOP/s" }
+  - { sym: "W", meaning: "bandwidth, bytes/s" }
+  - { sym: "α", meaning: "ridge, C/W" }
+  - { sym: "I", meaning: "FLOPs per byte" }
+  - { sym: "T_math", meaning: "FLOPs / C" }
+  - { sym: "T_comms", meaning: "bytes / W" }
+  - { sym: "B", meaning: "sequences" }
+  - { sym: "b_w", meaning: "bytes per weight" }
+  - { sym: "b_a", meaning: "bytes per activation" }
+  - { sym: "B_crit", meaning: "crossover batch" }
+---
+import Fig from '../../components/inference/Fig.astro';
+import RooflineFigure from '../../components/inference/RooflineFigure.astro';
+import WeightReuse from '../../components/inference/WeightReuse.svelte';
+import ChipTable from '../../components/inference/ChipTable.astro';
+import PlotSvg from '../../components/inference/PlotSvg.astro';
+import { overheadLanes } from '../../figures/overhead.ts';
+
+export const long = (o) => overheadLanes({ ...o, scenario: 'long' });
+export const short = (o) => overheadLanes({ ...o, scenario: 'short' });
+export const graph = (o) => overheadLanes({ ...o, scenario: 'graph' });
+
+<p class="lede">Every operation a model runs has two costs: the arithmetic it does and the bytes it moves. A chip pays for them on separate clocks, and whichever is slower decides how long the operation takes. This page turns that into one picture, the roofline, and uses it to show why decode and prefill behave like two different workloads.</p>
+
+## Two clocks, one chip
+
+A chip's compute rate $C$ is measured in FLOP/s and its memory bandwidth $W$ in bytes per second. An operation needs time for its arithmetic and time to move its bytes:
+
+$$
+T_\text{math} = \frac{\text{FLOPs}}{C},
+\qquad
+T_\text{comms} = \frac{\text{bytes}}{W}
+$$
+
+Chips overlap the two, loading the next tile of data while computing on this one, so the operation takes at least the larger:
+
+$$
+T \;\ge\; \max\!\big(T_\text{math},\ T_\text{comms}\big)
+$$
+
+With perfect overlap it takes exactly the larger; with none, the sum, which is never more than twice the larger. So the larger one is the number to reason about, and the question for any operation is which of the two it is.
+
+The bytes in question cross one particular link. Horace He's analogy fits it well. Compute is a factory. It keeps a little storage of its own, on-chip SRAM, built to be fast rather than big. Everything else lives in a warehouse where space is cheap, the HBM beside the chip, and shipping between the two is the memory bandwidth. The factory also needs instructions, sent by the host one batch of work at a time, which is the subject of the last section.
+
+```mermaid n="3.1" caption="The memory hierarchy of one Trainium2. HBM holds about 440 times more than the on-chip SRAM, and everything the engines compute on crosses the link from HBM first." alt="Three boxes top to bottom. HBM, 96 GiB, the warehouse, holding the weights and the KV cache. A thick arrow labelled 2.9 TB/s, the narrow link, to on-chip SRAM, 224 MiB, the factory's shelves. An arrow labelled much faster to the compute engines, 667 TFLOP/s in bf16, the factory floor. A dotted arrow from the host CPU, which sends the instructions, to the compute engines, labelled kernel launches."
+flowchart TD
+  hbm[("HBM · 96 GiB<br/>the warehouse: weights and KV cache")]
+  sram["on-chip SRAM · 224 MiB<br/>the factory's shelves"]
+  pe["compute engines · 667 TFLOP/s bf16<br/>the factory floor"]
+  host["host CPU<br/>sends the instructions"]
+  hbm ==>|"2.9 TB/s: the narrow link"| sram
+  sram -->|"much faster"| pe
+  host -.->|"kernel launches"| pe
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  classDef c fill:var(--c-soft),stroke:var(--c)
+  class hbm w
+  class pe c
+```
+
+## Arithmetic intensity and the ridge
+
+Dividing both times by the bytes turns the comparison into one number for the operation and one for the chip:
+
+$$
+T_\text{math} > T_\text{comms}
+\iff
+\frac{\text{FLOPs}}{\text{bytes}} > \frac{C}{W}
+$$
+
+The left side is the operation's **arithmetic intensity** $I$, the FLOPs it does per byte it moves. The right side is the chip's **ridge point** $\alpha = C/W$, the FLOPs it can do in the time it takes to move one byte. If $I < \alpha$, the engines finish their share early and wait for memory: the operation is **bandwidth-bound**. If $I > \alpha$, memory finishes early and waits for the engines: it is **compute-bound**.
+
+<aside class="note">Trainium2 does $C$ = 667 TFLOP/s in bf16 and moves $W$ = 2.9 TB/s, so $\alpha \approx 230$: an operation has to do about 230 FLOPs for every byte it touches before compute, not memory, sets its speed. <a class="src" href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html">AWS Neuron docs</a></aside>
+
+Williams, Waterman and Patterson (2009) drew this as a picture they called the **roofline**. Plot the FLOP/s an operation can reach against its intensity, both on log scales. Below the ridge, the operation can reach $W \cdot I$: a diagonal, along which every extra FLOP per byte buys proportionally more speed. Above the ridge, the line goes flat at $C$, and extra intensity buys nothing. Figure 3.2 puts Llama 3 70B's operations on Trainium2's roofline.
+
+<Fig n="3.2" title="The roofline, with a transformer on it.">
+  <RooflineFigure />
+  <Fragment slot="caption">One layer of Llama 3 70B, from the same block-by-block model as Figure 0.2: prefill with a 2,048-token prompt, decode attention over 8,192 cached tokens. Amber points are bandwidth-bound and green ones compute-bound. With bf16 weights, a decode matmul's intensity is about B, so the batch control walks it up the diagonal until it meets the ridge at B_crit; 8-bit weights halve its bytes and double its intensity. The readout's two bars are the operation's two clocks, and the longer one is its time.</Fragment>
+</Fig>
+
+## Real chips
+
+<ChipTable />
+
+Two patterns stand out. Every chip here needs between about 150 and 300 FLOPs per byte to be compute-bound, so "a couple of hundred" is a usable guess for any modern accelerator. And scaling out doesn't move the ridge: 16 Trainium2s have 16 times the compute and 16 times the bandwidth, so the instance's $\alpha$ is the chip's.
+
+Three traps hide in spec sheets:
+
+- **Sparse figures.** Vendors also quote throughput with structured sparsity, which assumes a fixed pattern of zeros in the weights. H100's datasheet leads with 1,979 bf16 TFLOP/s; dense, it is half that. Trainium2's sparse figure, 2,563 TFLOP/s, is about four times its dense bf16 rate. The dense figures are the ones that apply to ordinary weights, and they are the ones used here.
+- **Peak isn't achieved.** $C$ and $W$ are ceilings. Real kernels reach a fraction of each, and chapter 4 carries those fractions as two efficiency factors.
+- **Units.** Spec pages mix GB and GiB, and sometimes write one where they mean the other. The sources at the end say how each number here was read.
+
+The ridge also tends to rise over time. Over the past 20 years, peak server compute grew about 3.0 times every two years while DRAM bandwidth grew about 1.6 times (Gholami et al., 2024). So each generation needs more FLOPs per byte to be compute-bound, and an operation that is bandwidth-bound today sits further below the ridge tomorrow.
+
+## Every operation in a layer
+
+Figure 3.2's points cover the kinds of operation a transformer layer runs. Their intensities, from the same model:
+
+<div class="table-wrap">
+
+| Operation | FLOPs per byte | Why |
+|---|---|---|
+| Residual add | 1/6 | one FLOP per element, and three 2-byte elements moved for it |
+| RMSNorm, SiLU gate | 1 or less | a few FLOPs per element and nothing reused |
+| Decode matmul, batch $B$ | about $B$ | each weight is read once and used for $B$ rows |
+| Decode attention | about $g$ | each cached key and value is used by $g$ query heads |
+| Prefill attention, $T$ = 2,048 | 910, about $\tfrac{Tg}{2(g+1)}$ | each key and value is used by every later query in the prompt |
+| Prefill matmul, $T$ = 2,048 | about 1,550 | each weight is used for every prompt token |
+
+</div>
+
+Only two things can push an operation past the ridge: the number of rows each weight matrix serves, which is the batch in decode and the prompt in prefill, and the prompt length for attention. Everything elementwise is stuck below 1 and is bandwidth-bound however it is run; the fix for those is to stop moving their bytes at all, by fusing them into a neighbouring kernel (chapter 6).
+
+Decode attention stays at about $g$ whatever the batch, because every sequence brings its own cache: doubling $B$ doubles attention's FLOPs and its bytes together. That is GQA's second benefit from chapter 2. With $g$ = 8, Llama 3 70B's decode attention does about 8 FLOPs per byte instead of 1. That is still about 30 times short of the ridge, so attention stays bandwidth-bound, but it finishes eight times sooner than multi-head attention would, because it reads an eighth of the bytes.
+
+## The batch that crosses the ridge
+
+Take one matrix multiply in decode: $B$ rows of activations, each of width $d$, times a $d \times F$ weight matrix. It does $2 \cdot B \cdot d \cdot F$ FLOPs. It reads the weights once, $b_w \cdot d \cdot F$ bytes, plus the activations in and out, which are small while $B$ is much less than $d$ and $F$. So
+
+$$
+I \;\approx\; \frac{2B \cdot dF}{b_w \cdot dF} \;=\; \frac{2B}{b_w}
+$$
+
+which is $B$ in bf16. Figure 3.3 shows why the batch helps: the weights are read once however many rows use them.
+
+<Fig n="3.3" title="Weights read once, used B times.">
+  <WeightReuse />
+  <Fragment slot="caption">The FLOPs grow with the number of rows; the bytes read stay the size of the weight matrix. That is the whole reason batching works.</Fragment>
+</Fig>
+
+Setting $T_\text{math} = T_\text{comms}$ gives the batch at which a decode matmul stops being bandwidth-bound:
+
+$$
+\frac{2 B\, dF}{C} = \frac{b_w\, dF}{W}
+\quad\Longrightarrow\quad
+B_\text{crit} = \frac{b_w}{2} \cdot \frac{C}{W}
+$$
+
+where $C$ is the compute rate at the precision the arithmetic runs in. With bf16 weights and bf16 arithmetic, $b_w = 2$ and $B_\text{crit} = \alpha$: about 230 on Trainium2, 295 on an H100. Changing precision moves it:
+
+<div class="table-wrap">
+
+| Weights | Arithmetic | $B_\text{crit}$ on Trainium2 | Why |
+|---|---|---:|---|
+| bf16 | bf16 | 230 | $b_w = 2$, so $B_\text{crit} = \alpha$ |
+| 8-bit | bf16 | 115 | half the bytes per weight; the same compute |
+| 8-bit | 8-bit | 224 | half the bytes, and about twice the FLOP/s (1,299 TFLOP/s) |
+
+</div>
+
+Quantizing the weights alone halves $B_\text{crit}$: each byte read now feeds twice the arithmetic, so a smaller batch saturates the engines, and a decode step that is still below the ridge runs up to twice as fast. Quantizing the arithmetic too about doubles $C$, which brings $B_\text{crit}$ back to about where it started; it does not double it. Chapter 6 works through both.
+
+$B_\text{crit}$ counts tokens per step, not requests. In prefill, a single 2,048-token prompt is 2,048 rows through every weight, nine times past the ridge. In decode, each sequence contributes one row, so reaching 230 rows takes 230 sequences decoding at once, each with its own cache.
+
+At $B_\text{crit}$ the two clocks are equal by construction, and the same holds at the scale of the whole model. On a Trn2 instance, reading Llama 3 70B's 141 GB of weights at 46.4 TB/s takes 3.04 ms, and the $2 \cdot 230 \cdot P$ FLOPs of 230 tokens take 3.04 ms at 10.7 PFLOP/s.
+
+The knee is softer than the max makes it look. Loads and arithmetic never overlap perfectly, so near the ridge a real step takes longer than the larger of the two times. The activations' bytes, left out above, also push the crossover a little past $\alpha$: in Figure 3.2, the engines are busy 96.5% of the time at $B$ = 230, not 100%. Treat $B_\text{crit}$ as the place where the curve bends, not as a cliff.
+
+## Why decode waits on memory and prefill on arithmetic
+
+The matrix multiplies are identical in both phases; only the number of rows differs. Prefill pushes $B \cdot T$ rows through every weight, thousands, so it sits far to the right of the ridge and its speed is set by $C$. Decode pushes $B$ rows, and unless $B$ reaches $B_\text{crit}$ it sits to the left, where its speed is set by $W$.
+
+Attention differs between the phases by structure, not just by row count. In prefill, the prompt's keys and values are produced in the same pass and reused by every later query in the prompt, so intensity grows with $T$. In decode, one query per sequence meets that sequence's entire cache, and each cached byte is used about $g$ times, whatever the batch.
+
+Underneath both is one asymmetry, which chapter 2 met as a memory question: weights are shared by everything in the batch, and caches are private. Batching raises the intensity of the matrix multiplies, because more rows share each weight it reads. It does nothing for attention, because each new sequence brings its own bytes. As the context grows, the cache becomes a larger share of what each decode step reads, and that share is bandwidth-bound at any batch.
+
+## The third regime: overhead
+
+The roofline has two regimes. Real systems have a third (He, 2022): **overhead**, the time spent on everything that is neither arithmetic nor memory traffic. That means the Python interpreter, the framework's dispatch and the cost of launching each kernel. He measured Python doing about 32 million additions a second against an A100's 312 TFLOP/s, and put it this way: "in the time that Python can perform a single FLOP, an A100 could have chewed through 9.75 million FLOPS."
+
+Overhead stays hidden while the host can queue work faster than the device finishes it, and decode is where it stops hiding. A decode step is a few milliseconds of device time split across hundreds of kernels, about ten per layer, so each kernel lasts microseconds, which is about as long as launching one can take. Figure 3.4 draws three cases.
+
+<Fig n="3.4" title="When the host can't keep up.">
+<div class="lanes">
+<p class="lane-title">Long kernels, launched one at a time, as in prefill</p>
+<PlotSvg class="only-wide" render={long} width={680} label="Host and device timelines. The host launches eight kernels, one every 5 microseconds. Each kernel takes 12 microseconds, so the device runs them back to back from 5 to 101 microseconds and never waits." />
+<PlotSvg class="only-narrow" render={long} width={340} label="Host and device timelines. The host launches eight kernels, one every 5 microseconds. Each kernel takes 12 microseconds, so the device runs them back to back from 5 to 101 microseconds and never waits." />
+<p class="lane-title">Short kernels, launched one at a time, as in decode</p>
+<PlotSvg class="only-wide" render={short} width={680} label="Host and device timelines. The host launches eight kernels, one every 5 microseconds. Each takes only 2 microseconds, so the device finishes each one and waits 3 microseconds for the next launch: 21 of its 37 microseconds are idle." />
+<PlotSvg class="only-narrow" render={short} width={340} label="Host and device timelines. The host launches eight kernels, one every 5 microseconds. Each takes only 2 microseconds, so the device finishes each one and waits 3 microseconds for the next launch: 21 of its 37 microseconds are idle." />
+<p class="lane-title">The same short kernels, launched as one compiled graph</p>
+<PlotSvg class="only-wide" render={graph} width={680} label="Host and device timelines. The host launches once. The device runs the eight 2-microsecond kernels back to back and finishes at 21 microseconds." />
+<PlotSvg class="only-narrow" render={graph} width={340} label="Host and device timelines. The host launches once. The device runs the eight 2-microsecond kernels back to back and finishes at 21 microseconds." />
+</div>
+  <Fragment slot="caption">Illustrative times, not measurements: 5 µs to launch a kernel, and kernels of 12 µs or 2 µs. Green is the device working, red the device waiting for the host.</Fragment>
+</Fig>
+
+He's test for this regime is to grow the problem: overhead doesn't scale with problem size, while compute and memory time do, so if doubling the batch barely changes the run time, the time was overhead. In decode, read that test with care. Below $B_\text{crit}$, doubling the batch also barely changes the step time, because the extra rows ride along on weights that are being read anyway. The test separates overhead from compute, but in decode it can't separate overhead from bandwidth on its own. A profile that shows the device sitting idle between kernels can.
+
+The fix is to stop launching from the host op by op. He lists tracing (`jit.trace`, `jax.jit`) and CUDA Graphs, which record a sequence of kernels once and replay it with a single launch. Ahead-of-time compilers, such as XLA for TPUs and the AWS Neuron compiler for Trainium and Inferentia, compile the model's graph before it runs, so a decode step runs as one compiled program. Either way the device sees what the bottom row of Figure 3.4 shows, and the step is back on the roofline.
+
+<div class="takeaways">
+
+## Key takeaways
+
+1. An operation takes at least $\max(\text{FLOPs}/C,\ \text{bytes}/W)$. Which term wins depends on one ratio: its FLOPs per byte against the chip's ridge $\alpha = C/W$, about 230 on Trainium2 and between 150 and 300 on every current accelerator.
+2. Elementwise operations and attention in decode sit far below the ridge at any batch. Only the matrix multiplies can cross it, and only when enough rows share each weight: $B_\text{crit} = (b_w/2) \cdot C/W$, which equals $\alpha$ in bf16 and halves with 8-bit weights.
+3. Prefill crosses the ridge with one prompt; decode needs about $\alpha$ sequences at once, each with its own cache, which is why decode is usually limited by memory bandwidth. When kernels get as short as launching them, a third limit, overhead, takes over.
+
+</div>
+
+## Check yourself
+
+<details class="check">
+<summary>Why doesn't doubling $C$ speed up single-user decode?</summary>
+
+At $B$ = 1 a decode matmul does about 1 FLOP per byte, more than two hundred times short of the ridge, so its time is set by bytes $/\,W$. Doubling $C$ shrinks the arithmetic time, which was already the smaller of the two. Only more bandwidth, fewer bytes (quantization) or more FLOPs per byte (a bigger batch) move it.
+
+</details>
+
+<details class="check">
+<summary>An H100 runs a matmul with 8-bit weights and bf16 arithmetic. What is $B_\text{crit}$?</summary>
+
+$B_\text{crit} = (b_w / 2) \cdot C/W$ = 0.5 × 989.5 / 3.35 ≈ 148. With bf16 weights it would be about 295; halving the bytes per weight halves it.
+
+</details>
+
+<details class="check">
+<summary>Doubling the batch of a decode step increases its time by 5%. Is the system overhead-bound?</summary>
+
+Not necessarily. Below $B_\text{crit}$, a bandwidth-bound decode step also barely slows down when the batch doubles, because it is still reading the same weights. To tell the two apart, look at a profile: an overhead-bound step shows the device idle between kernels, while a bandwidth-bound one shows it busy, waiting on memory inside each kernel.
+
+</details>
+
+## Sources
+
+<div class="sources">
+
+- Williams, Waterman and Patterson, [Roofline: An Insightful Visual Performance Model for Multicore Architectures](https://doi.org/10.1145/1498765.1498785), Communications of the ACM (2009): the roofline and its ridge point.
+- He, [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html) (2022): the factory analogy, the overhead regime, the 9.75 million quote and the batch-size test.
+- Austin et al., [How To Scale Your Model](https://jax-ml.github.io/scaling-book/), parts on [rooflines](https://jax-ml.github.io/scaling-book/roofline/) and [inference](https://jax-ml.github.io/scaling-book/inference/) (2025): $T_\text{math}$ and $T_\text{comms}$, the max bound, and the crossover batch with quantized weights.
+- Gholami et al., [AI and Memory Wall](https://arxiv.org/abs/2403.14123) (2024): compute growing 3.0 times every two years against DRAM bandwidth's 1.6.
+- kipply, [Transformer Inference Arithmetic](https://kipp.ly/transformer-inference-arithmetic/) (2022).
+- Chips: [Trainium2](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html) and the [Trn2 instance](https://aws.amazon.com/ec2/instance-types/trn2/) (1.5 TB and 46 TB/s across 16 chips; on-chip SRAM is the Trainium2 page's 224 MiB of SBUF); [Inferentia2](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/inferentia2.html), whose page writes 820 GiB/sec, read here as 820 GB/s because the [Inf2 instance page](https://aws.amazon.com/ec2/instance-types/inf2/) gives 9.8 TB/s across 12 chips; [H100](https://www.nvidia.com/en-us/data-center/h100/) and [A100](https://www.nvidia.com/en-us/data-center/a100/), whose datasheets mark the sparse figures; [TPU v5e](https://cloud.google.com/tpu/docs/v5e), whose 800 GiBps is read as written.
+
+</div>

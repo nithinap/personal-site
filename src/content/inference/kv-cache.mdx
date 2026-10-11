@@ -1,0 +1,284 @@
+---
+description: Why decode keeps every token's keys and values, how big that cache gets for any model, and what MQA, GQA and MLA each give up to make it smaller.
+prerequisites: Chapter 0, in particular attention, heads and the two phases. Sizing the cache needs only multiplication; why its size sets the speed of decode is chapter 3.
+symbols:
+  - { sym: "L", meaning: "layers" }
+  - { sym: "K", meaning: "key/value heads" }
+  - { sym: "H", meaning: "head width" }
+  - { sym: "g", meaning: "N/K" }
+  - { sym: "S", meaning: "cached tokens" }
+  - { sym: "B", meaning: "sequences" }
+  - { sym: "P", meaning: "parameters" }
+  - { sym: "b_w", meaning: "bytes per weight" }
+  - { sym: "b_kv", meaning: "bytes per cached number" }
+  - { sym: "d_c", meaning: "MLA latent width" }
+---
+import Fig from '../../components/inference/Fig.astro';
+import KvStepThrough from '../../components/inference/KvStepThrough.svelte';
+import KvBudget from '../../components/inference/KvBudget.svelte';
+import KvHeads from '../../components/inference/KvHeads.svelte';
+import PlotSvg from '../../components/inference/PlotSvg.astro';
+import { kvPerToken } from '../../figures/kv-per-token.ts';
+
+<p class="lede">In chapter 0, each decode step ran only the newest token through the model, yet attention let that token read every token before it. That works because each layer keeps every earlier token's keys and values: the KV cache. This page is about why keeping them is enough, what they cost, and the three ways models make them smaller.</p>
+
+## Why cache at all
+
+Generating text is a loop. The model reads the prompt, produces one token, appends it to the input and runs again, once per output token. Done naively, every step pushes the whole sequence so far through every layer: the prompt, and every token generated before this one. Producing $n$ tokens after a $T$-token prompt then runs
+
+$$
+nT + \frac{n(n-1)}{2}
+$$
+
+positions through the model, a cost that grows with the square of the length. For a 2,048-token prompt and a 512-token reply that is 1,179,392 positions, of which only 2,559 are new.
+
+The causal mask makes almost all of that work a repeat. A token's state at every layer depends only on itself and the tokens before it, so appending a token later changes nothing about the earlier ones: their keys and values at every layer come out exactly as they did the first time. So compute them once and keep them. Each step then runs only the new token through the layers, and its attention reads every earlier token's keys and values back from the cache.
+
+Keys and values are the only things worth keeping. A new token reaches the past only through attention, and attention reads the past only through its keys and values. Past queries were needed to compute past outputs, which are finished. Past activations were needed to compute past keys and values, which are stored. Figure 2.1 steps through both ways of generating the same sentence.
+
+<Fig n="2.1" title="Recomputing against caching.">
+  <KvStepThrough client:visible />
+  <Fragment slot="caption">Four prompt tokens, then five generated ones; four of the L layers are drawn. Recomputing runs every position again at every step, so the work grows with the square of the length. With the cache, each step runs one position and reads the rest. The FLOP totals use 2P, about 141 GFLOP per position for Llama 3 70B.</Fragment>
+</Fig>
+
+The cache doesn't remove every cost that grows with the context. The new token's query is still scored against every cached key, so each step's attention does a little more arithmetic than the last; chapter 1 counts that term. But it is small next to rerunning every matrix multiply for every earlier position.
+
+The price is memory. The cache grows by one token's keys and values per layer, per sequence, per step, and every decode step reads all of it. That, with the weights, is what decode spends its time reading, which is where chapter 3 picks up.
+
+## What has to fit
+
+Before the cache, the weights. They take $P \cdot b_w$ bytes, where $b_w$ is the size of one weight: 2 bytes in bf16, 1 in an 8-bit format. Llama 3 70B's 70.6 billion parameters take 141 GB in bf16, which is 131 GiB. One Trainium2 has 96 GiB of HBM, so the weights alone need at least two chips. A 16-chip Trn2 instance has 1.5 TiB, which leaves about 1.4 TiB for everything else, and most of everything else is the cache.
+
+## The cache, term by term
+
+For each token, at each layer, the cache holds one key vector and one value vector for every key/value head:
+
+$$
+\text{KV bytes} \;=\; 2 \cdot L \cdot K \cdot H \cdot S \cdot b_\text{kv} \cdot B
+$$
+
+- **2**: one key and one value. It has nothing to do with bytes per number.
+- **$L$**: every layer keeps its own keys and values.
+- **$K \cdot H$**: the width of one layer's keys, or of its values. It is $K$, the number of key/value heads, not $N$, the query heads; this is the factor GQA shrinks.
+- **$S$**: tokens in the cache, which grows by one every decode step.
+- **$b_\text{kv}$**: bytes per cached number, 2 in bf16.
+- **$B$**: one cache per sequence. The weights are shared by every sequence in the batch; the caches are not.
+
+For Llama 3 70B in bf16, one token costs $2 \cdot 80 \cdot 8 \cdot 128 \cdot 2$ = 327,680 bytes, 320 KiB. A sequence of 8,192 tokens holds 2.5 GiB, and 32 of them hold 80 GiB, most of a chip.
+
+<Fig n="2.2" title="What has to fit in memory.">
+  <KvBudget client:visible />
+  <Fragment slot="caption">The amber block is the weights, one copy for the whole batch. Each violet block is one sequence's cache, drawn separately while they are wide enough to see. A decode step reads every byte of the bar, so the last line of the readout is a floor on the time per token, worked out properly in chapter 4.</Fragment>
+</Fig>
+
+The bar's two parts grow differently. The weights are fixed by the model. The cache grows with both $S$ and $B$, and past a point it is the larger of the two. For Llama 3 70B in bf16 they are equal at
+
+$$
+B \cdot S \;=\; \frac{P \cdot b_w}{2LKH \cdot b_\text{kv}} \;\approx\; 430{,}000
+$$
+
+cached tokens: 53 sequences of 8,192 tokens, or 210 of 2,048. Below that, one more sequence in the batch adds little to what a step has to read. Above it, the cache decides both how much memory the batch needs and how long each step spends reading it.
+
+## Shrinking K: MHA, GQA and MQA
+
+The cache formula has several levers. $S$ and $B$ belong to the workload, and $b_\text{kv}$ to quantization, which is chapter 6. The rest is architecture, and $K$ is the one number among them that can be cut without changing the rest of the layer.
+
+Shazeer (2019) named the problem: incremental decoding is often slow "due to the memory-bandwidth cost of repeatedly loading the large 'keys' and 'values' tensors." His fix, **multi-query attention** (MQA), keeps all $N$ query heads but has them share one key and value head, which cuts the cache by a factor of $N$. The catch was quality. Ainslie et al. (2023) proposed **grouped-query attention** (GQA) as the middle ground: $K$ key/value heads, each shared by $g = N/K$ query heads, which their experiments found close to multi-head quality at nearly multi-query speed. They also showed how to convert an existing multi-head model: average each group's key and value projections into one, then train for about 5% of the original compute.
+
+<Fig n="2.3" title="Fewer key/value heads, smaller cache.">
+  <KvHeads client:visible />
+  <Fragment slot="caption">Every K that divides the model's N; ✓ marks the K it shipped with. Each key/value head is shared by one band of query heads. The cache shrinks in proportion to K, and the room it frees on a Trn2 instance goes to more sequences.</Fragment>
+</Fig>
+
+The quality cost is real but modest. The cleanest public comparison, in an appendix of the DeepSeek-V2 paper, trains three 7B dense models on the same 1.33 trillion tokens with everything the same except the attention (and the layer count, adjusted to keep each at about 7B parameters):
+
+<div class="table-wrap">
+
+| Attention | MMLU | BBH | C-Eval | CMMLU |
+|---|---:|---:|---:|---:|
+| Multi-head | 45.2 | 37.0 | 42.9 | 43.5 |
+| Grouped-query, 8 groups | 41.2 | 35.6 | 37.7 | 38.4 |
+| Multi-query | 37.9 | 33.2 | 30.0 | 34.6 |
+
+</div>
+
+Each step down in $K$ costs points on every benchmark, between 1.4 and 7.7 per step. Llama 3 uses $K = 8$ at every size, which keeps a 70B model's cache an eighth of what multi-head attention would store: 320 KiB per token instead of 2.5 MiB.
+
+GQA has a second benefit, in the last line of Figure 2.3. During decode, each key and value read from the cache is used by all $g$ query heads that share it, so attention does about $g$ FLOPs per byte read instead of about 1. Chapter 3 shows why that helps, even though $g$ = 8 is still far below what the chip can use.
+
+## MLA: cache a compressed latent
+
+**Multi-head latent attention** (MLA), introduced with DeepSeek-V2 (2024), shrinks the cache a different way. Instead of fewer heads, it caches a compressed summary of each token, from which every head's key and value can be rebuilt.
+
+Each layer projects the token's state down to a latent $c^{KV}$ of width $d_c$ = 512 and caches only that. The keys and values of all 128 heads are projections back up from it: $k^C = W^{UK} c^{KV}$ and $v^C = W^{UV} c^{KV}$. Rebuilding them for every cached token at every step would spend the bandwidth MLA set out to save, so at inference the up-projections are folded into neighbouring matrices. $W^{UK}$ is absorbed into the query's own up-projection $W^{UQ}$, so each query is scored against the latents directly. $W^{UV}$ is absorbed into the output projection $W^O$, so the attention-weighted sum is taken over latents too. The cache is never expanded.
+
+Position needs a workaround. RoPE rotates each key by an angle that depends on its position, and in the score that rotation would sit between $W^{UQ}$ and $W^{UK}$, so the two could no longer be merged into one fixed matrix. MLA keeps position out of the latent instead: a separate RoPE key of width $d_h^R$ = 64, shared by all the heads, is cached beside it, and each head's query gets a matching 64-wide RoPE part. Figure 2.4 draws both views.
+
+<Fig n="2.4" title="MLA: what is computed, and what is cached.">
+<div class="views">
+<div class="seg" role="radiogroup" aria-label="View">
+<label><input type="radio" name="mla-view" value="train" checked /> Training view</label>
+<label><input type="radio" name="mla-view" value="infer" /> Inference view</label>
+</div>
+<div class="view view-train">
+<p class="view-label">Training: every head's key and value is rebuilt from the latent.</p>
+
+```mermaid bare="true" alt="Training view of multi-head latent attention. The token's state h, width d, is projected down by W_DKV to the latent c_KV, width 512, which is cached. W_UK and W_UV project the latent back up to the keys and values of all 128 heads. A separate projection W_KR, followed by RoPE, gives one 64-wide key shared by all heads, also cached. The queries come from a 1,536-wide query latent: W_UQ gives each head's query and W_QR followed by RoPE gives each head's 64-wide RoPE part. Each head scores its query against the keys, takes the softmax-weighted sum of the values, and W_O mixes the heads' outputs back into the stream."
+flowchart TB
+  h(["token state h"])
+  ckv[("cached: c_KV, 512")]
+  kr[("cached: k_R, 64")]
+  dkv["W_DKV"]
+  wkr["W_KR + RoPE"]
+  uk["W_UK: keys"]
+  uv["W_UV: values"]
+  dq["W_DQ: to 1,536"]
+  uq["W_UQ: queries"]
+  qr["W_QR + RoPE"]
+  att["attention, 128 heads"]
+  wo["W_O"]
+  h --> dkv
+  h --> wkr
+  h --> dq
+  dkv --> ckv
+  wkr --> kr
+  ckv --> uk
+  ckv --> uv
+  dq --> uq
+  dq --> qr
+  uk --> att
+  uv --> att
+  kr --> att
+  uq --> att
+  qr --> att
+  att --> wo
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  classDef kv fill:var(--kv-soft),stroke:var(--kv)
+  class dkv,wkr,uk,uv,dq,uq,qr,wo w
+  class ckv,kr kv
+```
+
+</div>
+<div class="view view-infer">
+<p class="view-label">Inference: W_UK is absorbed into W_UQ and W_UV into W_O, so attention works on the cached latents directly.</p>
+
+```mermaid bare="true" alt="Inference view of multi-head latent attention. The new token's state h is projected down to its latent c_KV and through W_KR and RoPE to its shared RoPE key; both are appended to the cache. Its query comes from the query latent through W_UQ with W_UK absorbed into it, so each head's query lives in the 512-wide latent space, plus a 64-wide RoPE part. Each head scores its query against every cached latent and every cached RoPE key, and takes the softmax-weighted sum of the cached latents. W_O with W_UV absorbed into it maps that sum back to width d. Keys and values are never built."
+flowchart TB
+  h(["new token's state h"])
+  dkv["W_DKV"]
+  wkr["W_KR + RoPE"]
+  ckv[("cache: c_KV, 512")]
+  kr[("cache: k_R, 64")]
+  dq["W_DQ"]
+  uqk["W_UQ, W_UK absorbed"]
+  qr["W_QR + RoPE"]
+  sc["scores against the cache"]
+  mix["weighted sum of cached c_KV"]
+  wo["W_O, W_UV absorbed"]
+  h --> dkv
+  h --> wkr
+  h --> dq
+  dkv -->|"append"| ckv
+  wkr -->|"append"| kr
+  dq --> uqk
+  dq --> qr
+  uqk --> sc
+  qr --> sc
+  ckv --> sc
+  kr --> sc
+  sc --> mix
+  ckv --> mix
+  mix --> wo
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  classDef kv fill:var(--kv-soft),stroke:var(--kv)
+  class dkv,wkr,dq,uqk,qr,wo w
+  class ckv,kr kv
+```
+
+</div>
+</div>
+  <Fragment slot="caption">DeepSeek-V2's dimensions, with the paper's names: D marks a projection down to a latent, U one back up, and R the RoPE parts. Violet is what each layer caches, 512 + 64 = 576 numbers per token, against 2·128·128 = 32,768 for multi-head attention with the same heads. Amber boxes are weight matrices.</Fragment>
+</Fig>
+
+Per token per layer, MLA caches $d_c + d_h^R$ = 576 numbers. With DeepSeek-V2's 128 heads of width 128, multi-head attention would cache $2 \cdot 128 \cdot 128$ = 32,768, so MLA stores 57 times fewer. Counted the way the paper counts, in numbers rather than bytes, that equals GQA with 2.25 groups.
+
+The paper's headline, a cache 93.3% smaller than DeepSeek 67B's, combines three separate effects, and they are worth taking apart:
+
+<div class="table-wrap">
+
+| Compared with | MLA's cache is smaller by | What the comparison includes |
+|---|---:|---|
+| A matched multi-head model | about 96% | the paper's own ablation: same model, attention swapped |
+| DeepSeek 67B's GQA-8 cache | about 82% | numbers per token; 67B has 95 layers to V2's 60 |
+| The same, in bytes | 93.3% | V2's cache quantized to 6 bits on average, 67B's in bf16 |
+
+</div>
+
+So the 93.3% is MLA plus fewer layers plus 6-bit storage, set against a different and deeper model. The architectural effect on its own is the first row, and in that same ablation MLA scored higher than multi-head attention on all four benchmarks at the larger model size and on three of the four at the smaller.
+
+## Real models side by side
+
+<Fig n="2.5" title="Cache per token, five models.">
+  <PlotSvg class="only-wide" render={kvPerToken} width={680} label="Bar chart of KV cache per token in bf16, all layers: Llama 2 13B with multi-head attention 800 KiB, Llama 3.1 405B 504 KiB, Llama 3 70B 320 KiB, Llama 3 8B 128 KiB, DeepSeek-V3 with MLA about 69 KiB." />
+  <PlotSvg class="only-narrow" render={kvPerToken} width={340} label="Bar chart of KV cache per token in bf16, all layers: Llama 2 13B with multi-head attention 800 KiB, Llama 3.1 405B 504 KiB, Llama 3 70B 320 KiB, Llama 3 8B 128 KiB, DeepSeek-V3 with MLA about 69 KiB." />
+  <Fragment slot="caption">bf16, all layers, per token of one sequence. The GQA models all use K = 8 with H = 128, so their bars differ only by layer count.</Fragment>
+</Fig>
+
+Llama 2 13B is the cautionary case. With multi-head attention, one 8,192-token sequence caches 6.7 GB, so four such sequences hold more than the model's 26 GB of weights. Llama 3 70B is five times larger and caches 320 KiB per token, 40% of 13B's 800 KiB. DeepSeek-V3, which has 671 billion parameters in total, caches about 69 KiB.
+
+## Other levers
+
+Two more ideas shorten the cache instead of narrowing it.
+
+- **Sliding windows.** A layer that attends only to the last $W$ tokens needs to keep only $W$ tokens of cache. Mistral 7B does this in every layer with $W$ = 4,096; Gemma 2 alternates such local layers with layers that see the whole context. For the windowed layers, both the memory held and the bytes read per step stop growing past $W$.
+- **Sharing across layers.** Cross-layer attention (Brandon et al., 2024) lets adjacent layers share one set of keys and values, which halves what is stored. It doesn't halve what is read: each layer that uses the shared keys and values still reads them from memory during its own attention. What it buys is room, and room buys a larger batch.
+
+That distinction, between memory held and memory read, comes back in every chapter that follows. Capacity decides how many sequences fit. Traffic decides how long each step takes.
+
+<div class="takeaways">
+
+## Key takeaways
+
+1. The causal mask makes every past token's keys and values final, so decode computes them once and caches them. Each step then runs one new position per sequence through the layers, and reads the whole cache.
+2. The cache costs $2LKH \cdot b_\text{kv}$ bytes per token per sequence, 320 KiB for Llama 3 70B in bf16. It grows with $S$ and $B$ and the weights don't, so past about 430,000 cached tokens it is the larger of the two.
+3. GQA and MQA shrink it by sharing key/value heads, for a few points of quality; MLA caches a 576-number latent per layer and folds the rebuild into other matrices. Sliding windows shorten it, and cross-layer sharing shrinks what is stored but not what is read.
+
+</div>
+
+## Check yourself
+
+<details class="check">
+<summary>Why does the cache hold keys and values but not queries?</summary>
+
+A token's query is used once, to compute that token's own attention output at that layer, and that output is finished before the next token arrives. Later tokens never look at earlier queries. They look at earlier keys, to score them, and at earlier values, to mix them, so those are what has to be kept.
+
+</details>
+
+<details class="check">
+<summary>Llama 3 8B serves 64 users with 4,096-token contexts, in bf16. How big is the cache, and how does it compare with the weights?</summary>
+
+$2 \cdot 32 \cdot 8 \cdot 128 \cdot 2$ = 131,072 bytes, 128 KiB per token. Times 4,096 tokens is 512 MiB per user, and times 64 users is 32 GiB. The weights are $8.03 \times 10^9 \cdot 2$ = 16 GB, about 15 GiB, so the cache is twice the size of the model.
+
+</details>
+
+<details class="check">
+<summary>A model halves $K$. What happens to the cache, to the parameter count, and to decode attention's FLOPs per byte?</summary>
+
+The cache halves, because it is proportional to $K$. The parameter count falls only slightly: $W_K$ and $W_V$ shrink, but they are a small part of each layer next to $W_Q$, $W_O$ and the MLP. Decode attention's FLOPs per byte double, because each cached key and value now serves $g = N/K$ query heads and $g$ has doubled.
+
+</details>
+
+## Sources
+
+<div class="sources">
+
+- Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019): multi-query attention, and the quote.
+- Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) (2023): grouped-query attention and converting a multi-head model by averaging its heads.
+- DeepSeek-AI, [DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model](https://arxiv.org/abs/2405.04434) (2024): MLA, its absorbed form and decoupled RoPE (§2.1 and Appendix C), the 2.25-group comparison (Table 1), the attention ablation (Table 8) and the MLA ablation (Table 9). The 82% and 93.3% rows are worked out from the [DeepSeek 67B](https://huggingface.co/deepseek-ai/deepseek-llm-67b-base) and [DeepSeek-V2](https://huggingface.co/deepseek-ai/DeepSeek-V2) configs and the paper's 6-bit figure.
+- The [DeepSeek-V3 config](https://huggingface.co/deepseek-ai/DeepSeek-V3): 61 layers, a 512-wide latent and a 64-wide RoPE key.
+- Jiang et al., [Mistral 7B](https://arxiv.org/abs/2310.06825) (2023), and Gemma Team, [Gemma 2](https://arxiv.org/abs/2408.00118) (2024): sliding-window attention.
+- Brandon et al., [Reducing Transformer Key-Value Cache Size with Cross-Layer Attention](https://arxiv.org/abs/2405.12981) (2024).
+- kipply, [Transformer Inference Arithmetic](https://kipp.ly/transformer-inference-arithmetic/) (2022): the KV cache arithmetic this page follows.
+- Trainium2's 96 GiB and the Trn2 instance's 1.5 TiB and 46 TB/s are from the [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html) and the [Trn2 instance page](https://aws.amazon.com/ec2/instance-types/trn2/). Model shapes are Meta's, as in chapter 0.
+
+</div>

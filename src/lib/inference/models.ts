@@ -87,6 +87,73 @@ export const LLAMA2_13B: ModelShape = {
 /** Presets offered by the interactive figures, in menu order. */
 export const MODEL_PRESETS: ModelShape[] = [LLAMA3_8B, LLAMA3_70B, LLAMA3_405B, LLAMA2_13B];
 
+/**
+ * DeepSeek 67B: a dense GQA-8 model, and the baseline behind DeepSeek-V2's
+ * "93.3% smaller KV cache". Not a figure preset.
+ */
+export const DEEPSEEK_67B: ModelShape = {
+  id: "deepseek-67b",
+  name: "DeepSeek 67B",
+  L: 95,
+  d: 8192,
+  F: 22016,
+  N: 64,
+  K: 8,
+  H: 128,
+  V: 102400,
+  tied: false,
+  source: { label: "DeepSeek 67B config.json", url: "https://huggingface.co/deepseek-ai/deepseek-llm-67b-base" },
+};
+
+/**
+ * Multi-head latent attention (DeepSeek-V2 and V3). Each layer caches one
+ * latent of width dc, shared by keys and values, plus one RoPE key of width
+ * dR shared by every head.
+ */
+export interface MlaShape {
+  id: string;
+  name: string;
+  L: number;
+  d: number;
+  /** Attention heads, n_h. */
+  heads: number;
+  /** Per-head width of keys and values, d_h. */
+  dHead: number;
+  /** KV latent width, d_c (kv_lora_rank). */
+  dc: number;
+  /** Decoupled RoPE key width, d_h^R (qk_rope_head_dim). */
+  dR: number;
+  /** Query latent width, d_c' (q_lora_rank); not cached. */
+  dcQ: number;
+  source: { label: string; url: string };
+}
+
+export const DEEPSEEK_V2: MlaShape = {
+  id: "deepseek-v2",
+  name: "DeepSeek-V2",
+  L: 60,
+  d: 5120,
+  heads: 128,
+  dHead: 128,
+  dc: 512,
+  dR: 64,
+  dcQ: 1536,
+  source: { label: "DeepSeek-V2 config.json", url: "https://huggingface.co/deepseek-ai/DeepSeek-V2" },
+};
+
+export const DEEPSEEK_V3: MlaShape = {
+  id: "deepseek-v3",
+  name: "DeepSeek-V3",
+  L: 61,
+  d: 7168,
+  heads: 128,
+  dHead: 128,
+  dc: 512,
+  dR: 64,
+  dcQ: 1536,
+  source: { label: "DeepSeek-V3 config.json", url: "https://huggingface.co/deepseek-ai/DeepSeek-V3" },
+};
+
 export const DEFAULT_MODEL = LLAMA3_70B;
 
 export function modelById(id: string): ModelShape {

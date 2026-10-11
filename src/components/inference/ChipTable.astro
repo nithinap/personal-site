@@ -1,0 +1,38 @@
+---
+// Chapter 3's hardware table, generated from hardware.ts so it can't drift
+// from the figures. Dense bf16 compute only; sparse figures are left out.
+import { CHIPS, TRN2_INSTANCE, ridge, type Chip } from '../../lib/inference/hardware';
+
+const rows: Chip[] = [CHIPS[0], TRN2_INSTANCE, ...CHIPS.slice(1)];
+const GiB = 2 ** 30;
+const num = (x: number, digits: number) => Number(x.toPrecision(digits)).toLocaleString('en-US');
+// AWS states its capacities in GiB, NVIDIA and Google theirs in GB.
+const binary = (c: Chip) => c.id.startsWith('trainium') || c.id.startsWith('inferentia') || c.id.startsWith('trn2');
+const hbm = (c: Chip) => (binary(c) ? `${num(c.hbmBytes / GiB, 4)} GiB` : `${num(c.hbmBytes / 1e9, 4)} GB`);
+const tflops = (c: Chip) => (c.C >= 1e15 ? `${num(c.C / 1e15, 3)} PFLOP/s` : `${num(c.C / 1e12, 4)} TFLOP/s`);
+const bw = (c: Chip) => `${num(c.W / 1e12, 3)} TB/s`;
+---
+<div class="table-wrap">
+	<table>
+		<thead>
+			<tr>
+				<th scope="col">Chip</th>
+				<th scope="col" class="num">HBM</th>
+				<th scope="col" class="num"><var>W</var></th>
+				<th scope="col" class="num"><var>C</var>, bf16 dense</th>
+				<th scope="col" class="num"><var>α</var> = <var>C</var>/<var>W</var></th>
+			</tr>
+		</thead>
+		<tbody>
+			{rows.map((c) => (
+				<tr>
+					<th scope="row">{c.name}</th>
+					<td class="num">{hbm(c)}</td>
+					<td class="num">{bw(c)}</td>
+					<td class="num">{tflops(c)}</td>
+					<td class="num">{Math.round(ridge(c))}</td>
+				</tr>
+			))}
+		</tbody>
+	</table>
+</div>

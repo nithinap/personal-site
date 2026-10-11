@@ -1,7 +1,7 @@
 // Closed-form counts for a dense, pre-norm, gated-MLP transformer (the Llama
 // family). Chapter 1 derives each of these; the tests pin them to the worked
 // examples in the text.
-import type { ModelShape } from "./models.ts";
+import type { MlaShape, ModelShape } from "./models.ts";
 
 export interface ParamBreakdown {
   /** Per layer: gate, up and down projections, 3·d·F. */
@@ -48,6 +48,54 @@ export function cCoefficient(m: ModelShape): number {
 /** KV-cache bytes for one token of one sequence: 2·L·K·H·b_kv. */
 export function kvBytesPerToken(m: ModelShape, bKv = 2): number {
   return 2 * m.L * m.K * m.H * bKv;
+}
+
+/** Numbers cached per token, all layers: 2·L·K·H, whatever their precision. */
+export function kvElementsPerToken(m: Pick<ModelShape, "L" | "K" | "H">): number {
+  return 2 * m.L * m.K * m.H;
+}
+
+/** Weight bytes, P·b_w. */
+export function weightBytes(m: ModelShape, bW = 2): number {
+  return params(m).total * bW;
+}
+
+/** The whole cache for B sequences of S tokens: 2·L·K·H·S·b_kv·B. */
+export function kvBytes(m: ModelShape, w: { S: number; B?: number; bKv?: number }): number {
+  return kvBytesPerToken(m, w.bKv ?? 2) * w.S * (w.B ?? 1);
+}
+
+/** B·S, the cached token slots, at which the cache holds as many bytes as the weights. */
+export function kvCrossoverTokens(m: ModelShape, bW = 2, bKv = 2): number {
+  return weightBytes(m, bW) / kvBytesPerToken(m, bKv);
+}
+
+/** MLA caches one latent of width d_c and one shared RoPE key of width d_R per layer. */
+export function mlaElementsPerToken(m: MlaShape): number {
+  return (m.dc + m.dR) * m.L;
+}
+
+/** What multi-head attention with the same heads would cache: 2·n_h·d_h·L. */
+export function mhaElementsPerToken(m: MlaShape): number {
+  return 2 * m.heads * m.dHead * m.L;
+}
+
+/** The number of GQA groups whose cache equals MLA's: (d_c + d_R) / (2·d_h). */
+export function mlaEquivalentGroups(m: MlaShape): number {
+  return (m.dc + m.dR) / (2 * m.dHead);
+}
+
+/**
+ * Token positions pushed through every layer to generate n tokens after a
+ * T-token prompt, without a cache: step i reruns all T + i positions.
+ */
+export function positionsRecomputed(T: number, n: number): number {
+  return n * T + (n * (n - 1)) / 2;
+}
+
+/** The same with a KV cache: the prompt once, then one position per step. */
+export function positionsCached(T: number, n: number): number {
+  return T + n - 1;
 }
 
 /**

@@ -247,3 +247,308 @@
   fill: var(--n-muted);
   font-size: 12px;
 }
+
+/* ---------- Shared readout list (Figures 2.2, 2.3, 3.2) ---------- */
+.readout {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.3rem 1rem;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.readout > div {
+  display: contents;
+}
+.readout dt {
+  color: var(--n-muted);
+}
+.readout dd {
+  margin: 0;
+}
+.readout .swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.4rem;
+  vertical-align: -0.05rem;
+  border: 1px solid;
+}
+.readout .swatch.w {
+  background: var(--w-soft);
+  border-color: var(--w);
+}
+.readout .swatch.kv {
+  background: var(--kv-soft);
+  border-color: var(--kv);
+}
+.readout .swatch.c {
+  background: var(--c-soft);
+  border-color: var(--c);
+}
+@media (max-width: 560px) {
+  .readout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.1rem;
+  }
+  .readout dd {
+    margin-bottom: 0.4rem;
+  }
+}
+
+/* ---------- Figure 2.1, KvStepThrough.svelte ---------- */
+.stepper svg,
+.budget svg,
+.kvheads svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.stepper .steps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.stepper .fig-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.stepper .fig-button[aria-pressed="true"] {
+  background: var(--n-accent-bg);
+  color: var(--n-text);
+}
+.stepper .cap,
+.stepper .rowlab,
+.stepper .key text {
+  fill: var(--n-muted);
+  font-size: 12px;
+}
+.stepper .bracket {
+  stroke: var(--n-rule);
+}
+.stepper .tok {
+  fill: var(--n-text);
+  font-size: 12px;
+  text-anchor: middle;
+  font-family: "Geist Mono", monospace;
+}
+.stepper .tok.future {
+  fill: var(--n-muted);
+}
+.stepper .tok.next {
+  fill: var(--n-accent);
+  font-weight: 600;
+}
+.stepper .cell {
+  fill: transparent;
+  stroke: var(--n-rule);
+  transition: fill 0.25s, stroke 0.25s;
+}
+.stepper .cell.run {
+  fill: var(--act);
+  stroke: var(--act);
+}
+.stepper .cell.read {
+  fill: var(--kv-soft);
+  stroke: var(--kv);
+}
+.stepper .totals {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.6rem 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.stepper .totals > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.6rem;
+  padding: 0.3rem 0.6rem;
+  border-left: 3px solid transparent;
+}
+.stepper .totals > div.active {
+  border-left-color: var(--n-accent);
+  background: var(--n-surface);
+}
+.stepper .totals dt {
+  font-weight: 600;
+  min-width: 12rem;
+}
+.stepper .totals dd {
+  margin: 0;
+  color: var(--n-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stepper .cell {
+    transition: none;
+  }
+}
+
+/* ---------- Figure 2.2, KvBudget.svelte ---------- */
+.budget .w {
+  fill: var(--w-soft);
+  stroke: var(--w);
+}
+.budget .kv {
+  fill: var(--kv-soft);
+  stroke: var(--kv);
+}
+.budget .seq {
+  stroke: var(--kv);
+  stroke-width: 1;
+}
+.budget .cap-rule {
+  stroke: var(--n-text);
+  stroke-dasharray: 4 3;
+}
+.budget .cap-lab,
+.budget .tick {
+  fill: var(--n-muted);
+  font-size: 12px;
+}
+.budget .tick-mark {
+  stroke: var(--n-rule);
+}
+
+/* ---------- Figure 2.3, KvHeads.svelte ---------- */
+.kvheads .band {
+  fill: color-mix(in srgb, var(--act) 7%, transparent);
+}
+.kvheads .band.alt {
+  fill: color-mix(in srgb, var(--act) 18%, transparent);
+}
+.kvheads .q {
+  fill: var(--act);
+}
+.kvheads .kv {
+  fill: var(--kv-soft);
+  stroke: var(--kv);
+}
+.kvheads .wire {
+  stroke: var(--n-muted);
+  stroke-width: 0.75;
+}
+.kvheads .lab {
+  fill: var(--n-text);
+  font-size: 11px;
+  text-anchor: middle;
+  font-family: "Geist Mono", monospace;
+}
+.kvheads .cap {
+  fill: var(--n-muted);
+  font-size: 12px;
+}
+
+/* ---------- Figure 2.4: two views, switched by radio buttons (no JavaScript) ---------- */
+.views .seg label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.25rem 0.7rem;
+  color: var(--n-muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.views .seg input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.views .seg label:has(input:checked) {
+  background: var(--n-accent-bg);
+  color: var(--n-text);
+}
+.views .seg label:has(input:focus-visible) {
+  outline: 2px solid var(--n-accent);
+  outline-offset: -2px;
+}
+.prose .views .view-label {
+  font-size: 0.8rem;
+  color: var(--n-muted);
+  margin: 0.75rem 0 0.25rem;
+}
+/* Browsers without :has() show both views, each under its own label. */
+.views:has(input[value="infer"]:checked) .view-train,
+.views:has(input[value="train"]:checked) .view-infer {
+  display: none;
+}
+
+/* Announced to screen readers when a figure changes, without repeating the
+   visible readout on screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Figure 3.2, RooflineIsland.svelte ---------- */
+.roofline .fig-plot svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.roofline .batch input[type="range"] {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  accent-color: var(--n-accent);
+}
+.roofline .batch output {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.85rem;
+  min-width: 5.5rem;
+}
+.roofline .legend {
+  font-size: 0.85rem;
+  color: var(--n-muted);
+  margin: 0.25rem 0 0.75rem;
+  line-height: 1.6;
+}
+.roofline .roof-key {
+  display: inline-block;
+  width: 1.6rem;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  border-top: 2px solid var(--n-text);
+}
+.roofline .roof-key.dashed {
+  border-top: 2px dashed var(--n-muted);
+}
+.roofline .legend .sep {
+  display: inline-block;
+  width: 1rem;
+}
+.roofline .bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: "Geist Mono", monospace;
+  font-size: 0.82rem;
+}
+.roofline .tbar {
+  display: block;
+  height: 10px;
+  flex: none;
+}
+.roofline .tbar.c {
+  background: var(--c);
+}
+.roofline .tbar.w {
+  background: var(--w);
+}
+
+/* ---------- Figure 3.4: three overhead timelines ---------- */
+.prose .lanes .lane-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0;
+}
+.prose .lanes .lane-title:first-child {
+  margin-top: 0;
+}

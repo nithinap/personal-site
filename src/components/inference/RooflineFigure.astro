@@ -1,0 +1,17 @@
+---
+// Figure 3.2 at build time: the default chart rendered to SVG (linkedom stands
+// in for the DOM and never reaches the browser), handed to the island, which
+// takes over once it scrolls into view. With JavaScript off this SVG is the figure.
+import { parseHTML } from 'linkedom';
+import RooflineIsland from './RooflineIsland.svelte';
+import { labelSvg, rooflineChart, rooflineLabel, rooflinePoints } from '../../figures/roofline';
+import { DEFAULT_MODEL } from '../../lib/inference/models';
+import { TRAINIUM2 } from '../../lib/inference/hardware';
+
+const width = 740;
+const { document } = parseHTML('<!doctype html><html><body></body></html>');
+const points = rooflinePoints({ model: DEFAULT_MODEL, B: 1, bW: 2, S: 8192, T: 2048 });
+const chart = rooflineChart({ document: document as unknown as Document, width, chip: TRAINIUM2, points, selected: 'decode-mm' });
+const initialSvg = labelSvg(chart.outerHTML, rooflineLabel(TRAINIUM2, points));
+---
+<RooflineIsland client:visible initialSvg={initialSvg} initialWidth={width} />
