@@ -56,11 +56,14 @@ const kicker = chapter
 		{chapter && <p class="outcome"><strong>After this page</strong> you can {chapter.outcome}</p>}
 		{entry.data.prerequisites && <p class="prereq"><strong>You need:</strong> {entry.data.prerequisites}</p>}
 		{entry.data.symbols.length > 0 && (
-			<ul class="symbols" aria-label="Symbols introduced on this page">
-				{entry.data.symbols.map((s) => (
-					<li><b set:html={exprHtml(s.sym)} />{s.meaning}</li>
-				))}
-			</ul>
+			<>
+				<p class="symbols-label" id="symbols-label">Symbols on this page</p>
+				<ul class="symbols" aria-labelledby="symbols-label">
+					{entry.data.symbols.map((s) => (
+						<li><b set:html={exprHtml(s.sym)} />{s.meaning}</li>
+					))}
+				</ul>
+			</>
 		)}
 	</header>
 	<div class="prose">

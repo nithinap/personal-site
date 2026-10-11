@@ -406,6 +406,17 @@ html.js .theme-switch {
   font-family: "Geist Mono", monospace;
   margin-right: 0.3rem;
 }
+.symbols-label {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--n-muted);
+  margin: 1rem 0 0;
+}
+.symbols-label + .symbols {
+  margin-top: 0.45rem;
+}
 
 /* ---------- prose ---------- */
 .prose {

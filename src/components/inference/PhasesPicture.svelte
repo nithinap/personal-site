@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Figure 0.5: the two phases, static (no JavaScript is shipped). Prefill
+  // Figure 0.6: the two phases, static (no JavaScript is shipped). Prefill
   // pushes the whole prompt through the layers as one wide block of rows;
   // decode pushes one thin row per sequence per step and rereads everything.
   // Drawn twice, wide and narrow; CSS shows the one that fits.

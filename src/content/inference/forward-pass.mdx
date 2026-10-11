@@ -27,21 +27,58 @@ import { activations } from '../../figures/activations.ts';
 
 <p class="lede">A language model writes one token at a time, and each token is one pass through the same stack of layers. Nearly everything this series computes, from the parameter count to the speed limit, is a property of that one pass. So before counting anything, this page draws the pass whole, with every symbol sitting where it applies.</p>
 
+## The architecture at a glance
+
+Llama 3 is a decoder-only transformer: the decoder of the original 2017 transformer on its own, with no encoder to read from. It has three parts. An embedding table turns each token into a vector, a stack of $L$ identical layers refines that vector, and an output projection turns the result into a score for every possible next token. Figure 0.1 draws all three, with the shape of every weight matrix.
+
+<Fig n="0.1" title="A decoder-only transformer, top to bottom.">
+
+```mermaid bare="true" alt="A token id enters an embedding table of V by d, which gives the residual stream, width d. One layer, repeated L times: the stream passes through an RMSNorm into attention, whose weights are W_Q, d by N·H, W_K and W_V, d by K·H, and W_O, N·H by d, and attention's output is added back to the stream. Attention writes keys and values to the KV cache and reads them back. The stream then passes through a second RMSNorm into the gated MLP, whose weights are W_gate and W_up, d by F, and W_down, F by d, and its output is added back. After the last layer come a final RMSNorm, lm_head of d by V, the V logits, and sampling of the next token."
+flowchart TB
+  tok["token id"] --> emb["embedding table<br/>V × d"]
+  subgraph layer["one layer, repeated L times"]
+    x(["residual stream, width d"]) --> n1["RMSNorm"]
+    n1 --> attn["attention<br/>W_Q: d × N·H<br/>W_K, W_V: d × K·H<br/>W_O: N·H × d"]
+    attn --> p1(("+"))
+    x --> p1
+    attn <-.->|"k, v"| cache[("KV cache")]
+    p1 --> n2["RMSNorm"]
+    n2 --> mlp["gated MLP<br/>W_gate, W_up: d × F<br/>W_down: F × d"]
+    mlp --> p2(("+"))
+    p1 --> p2
+  end
+  emb --> x
+  p2 --> fn["final RMSNorm"]
+  fn --> head["lm_head<br/>d × V"]
+  head -->|"V logits"| nxt["sample the next token"]
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  classDef kv fill:var(--kv-soft),stroke:var(--kv)
+  class emb,attn,mlp,head w
+  class cache kv
+```
+
+  <Fragment slot="caption">One layer is drawn; the model stacks L of them, each with its own weights. Amber boxes hold the weight matrices. The line down the left is the residual stream: each half reads it through an RMSNorm and adds its result back at a +. The dashed arrow is the KV cache: each layer stores every token's keys and values there, and later tokens read them back.</Fragment>
+</Fig>
+
+Each token travels through the model as a vector of width $d$, the **residual stream**. It has that name because no layer replaces it. Each layer changes it twice, the same way both times: it normalises a copy, transforms the copy and adds the result back. The normalisation, RMSNorm, divides the vector by its root-mean-square and multiplies each element by a learned scale. The first transform is **attention**, the only step where a token reads other tokens. It also stores each token's keys and values in the KV cache, so later tokens can read them instead of recomputing them. The second transform is the **MLP**, which works on each token alone.
+
+If you know the diagram in the 2017 paper, Llama 3 differs from it in five ways. It normalises before each half instead of after the add, and uses RMSNorm instead of LayerNorm. It rotates queries and keys to encode position (RoPE) instead of adding position vectors to the embeddings. Several query heads share each key and value head (GQA). And its MLP is gated (SwiGLU). The last three are explained below.
+
+The rest of this page goes through Figure 0.1 from top to bottom: the two ends, then every step of a layer with Llama 3 70B's numbers, then attention, heads, the MLP, and the two phases of producing a reply.
+
 ## Tokens in, token out
 
 A tokenizer turns text into integer ids from a vocabulary of $V$ entries; Llama 3's has 128,256. The **embedding table**, $V \times d$, turns each id into a vector of width $d$: 8,192 numbers for Llama 3 70B. That vector is the token's state, and the rest of the model is arithmetic on it.
 
-The state then passes through $L$ layers, 80 of them in Llama 3 70B. It is called the **residual stream** because no layer replaces it: each one reads it, computes something, and adds the result back. After the last layer, a final norm and the **output projection** `lm_head`, $d \times V$, turn the state into one score per vocabulary entry, the logits, and sampling picks the next token from them.
+The state then passes through the $L$ layers, 80 of them in Llama 3 70B. After the last layer, a final norm and the **output projection** `lm_head`, $d \times V$, turn the state into one score per vocabulary entry, the logits, and sampling picks the next token from them.
 
 Some models reuse the embedding table as the output projection. Their embeddings are *tied*, stored once, and $t = 1$. Llama 3 70B keeps the two separate, so $t = 2$ and they hold $2Vd$, 2.1 billion parameters: 3% of the model.
 
 ## One layer, every tensor in place
 
-Every layer has the same two halves. **Attention** is where tokens read each other; the **MLP** works on each token alone. Each half reads a normalised copy of the residual stream and adds its output back. The normalisation, RMSNorm, divides the vector by its root-mean-square and applies a learned scale per element.
+Figure 0.2 opens up the layer and lists every step of one forward pass, with Llama 3 70B's numbers. Each bar is as long as the vector that step produces for one token, all on one scale, so you can see that the MLP is 3.5 times as wide as the stream and that keys and values are an eighth as wide as queries.
 
-Figure 0.1 lists every step of one forward pass. Each bar is as long as the vector that step produces for one token, all on one scale, so you can see that the MLP is 3.5 times as wide as the stream and that keys and values are an eighth as wide as queries.
-
-<Fig n="0.1" title="One forward pass, every tensor in place.">
+<Fig n="0.2" title="One forward pass, every tensor in place.">
   <LayerAnatomy client:visible />
   <Fragment slot="caption">Bars are to scale; striped bars run off it. Select a step for its parameters, FLOPs, bytes and FLOPs per byte, or a symbol to light up every step it appears in. Bytes assume each step reads its inputs from memory and writes its output back, except attention, counted as one fused kernel that reads each key and value once, its best case. Chapter 6 is where fusion removes most of that traffic.</Fragment>
 </Fig>
@@ -64,7 +101,7 @@ o_i \;=\; \sum_{j \le i} a_{ij}\, v_j,
 a_{ij} \;=\; \frac{\exp\!\big(q_i \cdot k_j / \sqrt{H}\big)}{\sum_{j' \le i} \exp\!\big(q_i \cdot k_{j'} / \sqrt{H}\big)}
 $$
 
-<Fig n="0.2" title="Attention for one token.">
+<Fig n="0.3" title="Attention for one token.">
   <AttentionPicture />
   <Fragment slot="caption">Each row is one token's query scored against every key, and the mask hides the future. Row 5's scores become weights that mix the values into its output.</Fragment>
 </Fig>
@@ -79,7 +116,7 @@ A single attention over width-$d$ vectors lets each token look at the others in 
 
 In the original transformer every query head had its own key and value head, $K = N$, and that is what MHA means when it is set against the two variants that follow. Shazeer (2019) proposed **multi-query attention** (MQA): all the query heads share a single key and value head, $K = 1$. **Grouped-query attention** (GQA; Ainslie et al., 2023) sits between them. The query heads split into $K$ groups, and the $g = N/K$ heads in each group share one key and value head. Llama 3 uses $K = 8$ at every size, so $g$ is 4 for 8B, 8 for 70B and 16 for 405B. The GQA paper calls the number of groups $G$; it is the same number as $K$ here, named for the key/value heads because they are what sets the size of the cache.
 
-<Fig n="0.3" title="Query heads and key/value heads.">
+<Fig n="0.4" title="Query heads and key/value heads.">
   <HeadWiring client:visible />
   <Fragment slot="caption">Drawn with eight query heads. Llama 3 70B's 64 query heads and 8 key/value heads are the K = 1 picture repeated eight times. Fewer key/value heads change what is stored, not how many queries attend.</Fragment>
 </Fig>
@@ -100,7 +137,7 @@ $$
 \mathrm{FFN}_{\mathrm{SwiGLU}}(x) = \big(\mathrm{SiLU}(x W_{\mathrm{gate}}) \odot x W_{\mathrm{up}}\big)\, W_{\mathrm{down}}
 $$
 
-<Fig n="0.4" title="An ungated MLP and a gated one.">
+<Fig n="0.5" title="An ungated MLP and a gated one.">
 <div class="fig-pair">
 
 ```mermaid bare="true" phone="same"
@@ -141,12 +178,12 @@ Producing a reply has two phases with very different shapes.
 
 **Decode** then produces one token per sequence per step, so $T_\text{tok} = B$ rows. Each step reads the cache built so far, appends one more key and value per sequence, and emits one more token, $n_\text{out} - 1$ times in all.
 
-<Fig n="0.5" title="Prefill and decode.">
+<Fig n="0.6" title="Prefill and decode.">
   <PhasesPicture />
   <Fragment slot="caption">The same weights serve both phases. Prefill uses each weight for B·T rows once it has been read; decode reads every weight, and the whole cache, again for every B rows.</Fragment>
 </Fig>
 
-The weights are the same in both phases. What changes is how many rows each weight is used for once it has been read from memory: thousands in prefill, $B$ in decode. That one difference is why prefill is limited by arithmetic and decode by memory bandwidth, which is where chapters 2 and 3 pick up. You can already see it in Figure 0.1: switch the phase and watch the right-hand column.
+The weights are the same in both phases. What changes is how many rows each weight is used for once it has been read from memory: thousands in prefill, $B$ in decode. That one difference is why prefill is limited by arithmetic and decode by memory bandwidth, which is where chapters 2 and 3 pick up. You can already see it in Figure 0.2: switch the phase and watch the right-hand column.
 
 ## Symbol reference
 
@@ -194,13 +231,13 @@ The gate and up projections run side by side and are multiplied element by eleme
 
 <div class="sources">
 
-- Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (2017): scaled dot-product attention and multi-head attention.
+- Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (2017): the transformer and its layer design, scaled dot-product attention and multi-head attention.
 - Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019): multi-query attention.
 - Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) (2023): grouped-query attention.
 - Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020): SwiGLU, the two-thirds width rule, and the quote.
 - Su et al., [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864) (2021): RoPE.
 - Zhang and Sennrich, [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) (2019): RMSNorm.
-- Meta's Llama 3 [reference model code](https://github.com/meta-llama/llama3/blob/main/llama/model.py) and [model configurations](https://github.com/meta-llama/llama-models/blob/main/models/sku_list.py): the MLP width rule and the Llama 3 shapes. The Llama 2 7B, Llama 2 13B and Llama 3 70B shapes and untied embeddings are from their published configs ([7B](https://huggingface.co/meta-llama/Llama-2-7b-hf), [13B](https://huggingface.co/meta-llama/Llama-2-13b-hf), [70B](https://huggingface.co/meta-llama/Meta-Llama-3-70B)).
-- The ridge of about 230 FLOPs per byte in Figure 0.1 is Trainium2's 667 TFLOP/s of bf16 compute over its 2.9 TB/s of memory bandwidth, from the [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html).
+- Meta's Llama 3 [reference model code](https://github.com/meta-llama/llama3/blob/main/llama/model.py) and [model configurations](https://github.com/meta-llama/llama-models/blob/main/models/sku_list.py): the layer's order of norms and adds, the MLP width rule and the Llama 3 shapes. The Llama 2 7B, Llama 2 13B and Llama 3 70B shapes and untied embeddings are from their published configs ([7B](https://huggingface.co/meta-llama/Llama-2-7b-hf), [13B](https://huggingface.co/meta-llama/Llama-2-13b-hf), [70B](https://huggingface.co/meta-llama/Meta-Llama-3-70B)).
+- The ridge of about 230 FLOPs per byte in Figure 0.2 is Trainium2's 667 TFLOP/s of bf16 compute over its 2.9 TB/s of memory bandwidth, from the [AWS Neuron documentation](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html).
 
 </div>

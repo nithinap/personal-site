@@ -29,7 +29,7 @@ export const CHAPTERS: ChapterInfo[] = [
     short: "The forward pass",
     title: "The forward pass, every symbol in place",
     outcome:
-      "point to where every symbol in a model's config lives, and say what attention, heads, the gated MLP and the two phases of generation are.",
+      "draw the architecture of a model like Llama 3, point to where every symbol in its config lives, and say what attention, heads, the gated MLP and the two phases of generation are.",
     minutes: 25,
   },
   {

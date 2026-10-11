@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Figure 0.3: N query heads wired to K key/value heads. K = N is multi-head
+  // Figure 0.4: N query heads wired to K key/value heads. K = N is multi-head
   // attention, K = 1 is multi-query, anything between is grouped-query.
   // Chapter 2 reuses this wiring with byte and quality readouts.
   // Styles: src/styles/figures.css (a hydrated island's own <style> would be

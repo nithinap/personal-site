@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Figure 0.1: one forward pass, every tensor in place. Each row is one step
+  // Figure 0.2: one forward pass, every tensor in place. Each row is one step
   // of the pass; its bar is as long as the vector that step produces for one
   // token, to scale. Selecting a row opens its parameters, FLOPs, bytes and
   // FLOPs per byte for the chosen phase. All numbers come from layer.ts, which

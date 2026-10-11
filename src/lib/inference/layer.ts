@@ -1,4 +1,4 @@
-// One forward pass, block by block: the model behind Figure 0.1. For each step
+// One forward pass, block by block: the model behind Figure 0.2. For each step
 // of a layer it returns the output width per token, the parameters, the FLOPs
 // and the HBM bytes for the current phase, so the figure's readout and the
 // prose read the same numbers.

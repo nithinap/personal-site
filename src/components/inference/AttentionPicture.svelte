@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Figure 0.2: attention in one picture, static (no JavaScript is shipped).
+  // Figure 0.3: attention in one picture, static (no JavaScript is shipped).
   // A 6-token causal score grid with one query row worked through: scores,
   // mask, softmax weights, and the weighted sum of values. Drawn twice, wide
   // and narrow; CSS shows the one that fits.

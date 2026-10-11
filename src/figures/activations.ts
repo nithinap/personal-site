@@ -1,4 +1,4 @@
-// Figure 0.4's inset: the activation each MLP uses, ReLU against SiLU.
+// Figure 0.5's inset: the activation each MLP uses, ReLU against SiLU.
 import * as Plot from "@observablehq/plot";
 
 const xs = Array.from({ length: 161 }, (_, i) => -4 + i * 0.05);
