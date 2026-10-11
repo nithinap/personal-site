@@ -1,0 +1,61 @@
+---
+// The site's <head> contents, shared by the card layout (Layout.astro) and the
+// reading layout (SeriesLayout.astro) so both carry the same metadata.
+import { name, themeColor, twitterHandle } from 'spectre:globals';
+
+interface Props {
+	title: string;
+	description?: string;
+	image?: ImageMetadata;
+	article?: {
+		createdAt: Date;
+		updatedAt?: Date;
+	};
+}
+
+const { title, description, image, article } = Astro.props;
+
+// This page's own absolute URL. Using Astro.site alone told search engines
+// that every page was a duplicate of the home page.
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
+---
+<link rel="preload" href="/fonts/Geist.woff2" as="font" type="font/woff2" crossorigin="">
+<link rel="preload" href="/fonts/GeistMono.woff2" as="font" type="font/woff2" crossorigin="">
+
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="generator" content={Astro.generator} />
+
+<title>{title}</title>
+{description && <meta name="description" content={description} />}
+<meta name="theme-color" content={themeColor}>
+
+<link rel="canonical" href={canonicalURL} />
+
+<meta name="og:title" content={title} />
+{description && <meta name="og:description" content={description} />}
+<meta name="og:image" content={image?.src || '/img/og.png'} />
+<meta name="og:url" content={canonicalURL} />
+{!article && <meta name="og:type" content="website" />}
+<meta name="og:locale" content="en" />
+
+{article && (
+	<meta name="og:type" content="article" />
+	<meta property="article:published_time" content={article.createdAt.toISOString()} />
+	<meta name="author" content={name} />
+)}
+
+{article && article.updatedAt && (
+	<meta property="article:modified_time" content={article.updatedAt.toISOString()} />
+)}
+
+<meta name="twitter:card" content="summary_large_image" />
+{twitterHandle && (
+	<meta name="twitter:site" content={twitterHandle} />
+	<meta name="twitter:creator" content={twitterHandle} />
+)}
+<meta name="twitter:title" content={title} />
+{description && <meta name="twitter:description" content={description} />}
+<meta name="twitter:image" content={image?.src || '/img/og.png'} />
+<slot />
