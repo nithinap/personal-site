@@ -4,19 +4,29 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   cCoefficient,
+  decodeAttentionCrossover,
+  decodeAttentionFlops,
+  expertsTouched,
   groupSize,
   kvBytes,
   kvBytesPerToken,
   kvCrossoverTokens,
   kvElementsPerToken,
+  layerMatmulParams,
   metaFfnWidth,
   mhaElementsPerToken,
   mlaElementsPerToken,
   mlaEquivalentGroups,
+  moeParams,
   params,
+  paramsFromRatios,
   positionsCached,
   positionsRecomputed,
+  prefillAttentionCrossover,
+  prefillAttentionFlops,
+  shortcutShortfall,
   weightBytes,
+  weightFlopsPerToken,
 } from "./formulas.ts";
 import { A100_80GB, H100_SXM, INFERENTIA2, TPU_V5E, TRAINIUM2, TRN2_INSTANCE, ridge } from "./hardware.ts";
 import { forwardPass, passTotals, tokensPerStep } from "./layer.ts";
@@ -25,9 +35,11 @@ import {
   DEEPSEEK_V2,
   DEEPSEEK_V3,
   LLAMA2_13B,
+  LLAMA32_1B,
   LLAMA3_405B,
   LLAMA3_70B,
   LLAMA3_8B,
+  MIXTRAL_8X7B,
   attentionKind,
 } from "./models.ts";
 import { attainable, bCrit, decodeMatmul, opCost } from "./roofline.ts";
@@ -87,6 +99,141 @@ describe("heads and the KV cache", () => {
 describe("Trainium2", () => {
   it("ridge α = 667 / 2.9 ≈ 230 FLOP/byte", () => {
     close(ridge(TRAINIUM2), 230, 1e-3, "alpha");
+  });
+});
+
+describe("chapter 1: parameters", () => {
+  const share = (m: typeof LLAMA3_70B) => params(m).embeddings / params(m).total;
+
+  it("Llama 3.2 1B is 1,235,814,400 with its table shared; untied it would be 1.50 B", () => {
+    assert.equal(metaFfnWidth(2048, 256, 1.5), LLAMA32_1B.F);
+    assert.equal(params(LLAMA32_1B).total, 1_235_814_400);
+    assert.equal(params({ ...LLAMA32_1B, tied: false }).total, 1_498_482_688);
+  });
+
+  it("the embeddings' share falls with size: 21%, 13%, 3%, 1%", () => {
+    close(share(LLAMA32_1B), 0.2125, 1e-3, "1B");
+    close(share(LLAMA3_8B), 0.1308, 1e-3, "8B");
+    close(share(LLAMA3_70B), 0.0298, 2e-3, "70B");
+    close(share(LLAMA3_405B), 0.01036, 2e-3, "405B");
+  });
+
+  it("the MLP is 65% to 81% of every preset, and attention a third of Llama 2 13B's layers", () => {
+    for (const m of [LLAMA32_1B, LLAMA3_8B, LLAMA2_13B, LLAMA3_70B, LLAMA3_405B]) {
+      const mlp = (m.L * params(m).mlp) / params(m).total;
+      assert.ok(mlp > 0.65 && mlp < 0.82, `${m.name} MLP share ${mlp}`);
+    }
+    close(params(LLAMA2_13B).attention / params(LLAMA2_13B).layer, 0.3306, 1e-3, "13B attention share of a layer");
+  });
+
+  it("c is 14.5, 13, 12.75, 12.1 and 11.875; GPT-3's ungated r = 4 with MHA would be 12", () => {
+    assert.equal(cCoefficient(LLAMA32_1B), 14.5);
+    assert.equal(cCoefficient(LLAMA3_8B), 13);
+    assert.equal(cCoefficient(LLAMA3_70B), 12.75);
+    close(cCoefficient(LLAMA2_13B), 12.1, 1e-12, "13B");
+    assert.equal(cCoefficient(LLAMA3_405B), 11.875);
+    assert.equal(2 * 4 + 2 * (1 + 1), 12);
+  });
+
+  it("the ratios reproduce a preset whose heads add up to d", () => {
+    assert.equal(paramsFromRatios({ L: 80, d: 8192, r: 3.5, g: 8, V: 128256, tied: false }).total, params(LLAMA3_70B).total);
+    assert.equal(paramsFromRatios({ L: 16, d: 2048, r: 4, g: 4, V: 128256, tied: true }).total, params(LLAMA32_1B).total);
+  });
+
+  it("c·L·d² falls short of P by the embeddings and norms: 3% for 70B, 21% for 1B", () => {
+    close(shortcutShortfall(LLAMA3_70B), 0.0298, 2e-3, "70B");
+    close(shortcutShortfall(LLAMA32_1B), 0.2126, 1e-3, "1B");
+  });
+
+  it("MoE: Mixtral holds 46.7 B parameters and uses 12.9 B per token", () => {
+    const p = moeParams(MIXTRAL_8X7B);
+    assert.equal(p.total, 46_702_792_704);
+    assert.equal(p.active, 12_879_925_248);
+    close(p.total * 2, 93.4e9, 1e-3, "bf16 bytes");
+  });
+
+  it("a batch of 8 reaches 90% of a layer's 8 experts if each token's 2 picks were uniform", () => {
+    assert.equal(expertsTouched(8, 2, 1), 0.25);
+    close(expertsTouched(8, 2, 8), 0.8999, 1e-3, "B = 8");
+    close(expertsTouched(8, 2, 16), 0.99, 1e-3, "B = 16");
+  });
+});
+
+describe("chapter 1: FLOPs", () => {
+  const decode = (S: number) => ({ phase: "decode" as const, B: 1, T: S, S });
+  const prefill = (T: number) => ({ phase: "prefill" as const, B: 1, T, S: T });
+  const attnOf = (m: typeof LLAMA3_70B, w: ReturnType<typeof decode> | ReturnType<typeof prefill>) => {
+    const a = forwardPass(m, w).find((b) => b.id === "attention");
+    assert.ok(a);
+    return m.L * a.flops.value;
+  };
+
+  it("Llama 3 70B: 139.0 GFLOP per decoded token and 136.9 per prompt token, against 2P = 141.1", () => {
+    close(weightFlopsPerToken(LLAMA3_70B, true), 139.003e9, 1e-4, "decode");
+    close(weightFlopsPerToken(LLAMA3_70B, false), 136.902e9, 1e-4, "prefill");
+    close(2 * params(LLAMA3_70B).total, 141.107e9, 1e-4, "2P");
+  });
+
+  it("a tied 1B model's decoded token costs 2P, a prompt token only 79% of it", () => {
+    close(weightFlopsPerToken(LLAMA32_1B, true) / (2 * params(LLAMA32_1B).total), 1, 1e-4, "decode");
+    close(weightFlopsPerToken(LLAMA32_1B, false) / (2 * params(LLAMA32_1B).total), 0.787, 1e-3, "prefill");
+  });
+
+  it("the block model's weight FLOPs equal the closed form", () => {
+    const blocks = forwardPass(LLAMA3_70B, decode(8192));
+    const mm = blocks.filter((b) => b.kind === "matmul").reduce((a, b) => a + b.flops.value * (b.inLayer ? LLAMA3_70B.L : 1), 0);
+    assert.equal(mm, weightFlopsPerToken(LLAMA3_70B, true));
+    assert.equal(layerMatmulParams(LLAMA3_70B), 855_638_016);
+  });
+
+  it("decode attention is 4·L·S·N·H: 21.5 GFLOP at S = 8,192, 15% of 2P", () => {
+    assert.equal(decodeAttentionFlops(LLAMA3_70B, 8192), attnOf(LLAMA3_70B, decode(8192)));
+    close(decodeAttentionFlops(LLAMA3_70B, 8192), 21.475e9, 1e-4, "S = 8192");
+    close(decodeAttentionFlops(LLAMA3_70B, 8192) / (2 * params(LLAMA3_70B).total), 0.152, 2e-3, "of 2P");
+  });
+
+  it("prefill attention for a whole prompt is 2·L·T²·N·H, half the full score matrix", () => {
+    assert.equal(prefillAttentionFlops(LLAMA3_70B, 2048), attnOf(LLAMA3_70B, prefill(2048)));
+    assert.equal(prefillAttentionFlops(LLAMA3_70B, 2048) / 2048, decodeAttentionFlops(LLAMA3_70B, 2048) / 2);
+  });
+
+  it("GQA changes attention's bytes, not its FLOPs", () => {
+    const mha = { ...LLAMA3_70B, K: LLAMA3_70B.N };
+    assert.equal(decodeAttentionFlops(mha, 8192), decodeAttentionFlops(LLAMA3_70B, 8192));
+    assert.equal(kvBytesPerToken(mha), 8 * kvBytesPerToken(LLAMA3_70B));
+  });
+
+  it("crossovers: c·d/2 = 52,224 in decode (53,026 counting lm_head) and c·d = 104,448 in prefill", () => {
+    const { d } = LLAMA3_70B;
+    assert.equal((cCoefficient(LLAMA3_70B) * d) / 2, 52_224);
+    close(decodeAttentionCrossover(LLAMA3_70B), 53_026, 1e-4, "decode, with lm_head");
+    assert.equal(prefillAttentionCrossover(LLAMA3_70B), cCoefficient(LLAMA3_70B) * d);
+    // lm_head moves a small model's crossover much further: 14,848 to 18,856.
+    close(decodeAttentionCrossover(LLAMA32_1B), 18_856, 1e-4, "1B decode");
+  });
+
+  it("at the closed-form crossovers the block model puts attention at half the FLOPs", () => {
+    const halfAt = (m: typeof LLAMA3_70B, w: ReturnType<typeof decode> | ReturnType<typeof prefill>) =>
+      attnOf(m, w) / passTotals(m, forwardPass(m, w)).flops;
+    close(halfAt(LLAMA3_70B, decode(decodeAttentionCrossover(LLAMA3_70B))), 0.5, 1e-3, "decode");
+    close(halfAt(LLAMA3_70B, prefill(prefillAttentionCrossover(LLAMA3_70B))), 0.5, 1e-3, "prefill");
+  });
+
+  it("attention's share of Llama 3 70B's FLOPs: 13% and 7% at 8k, 71% and 56% at 128k", () => {
+    const shareOf = (w: ReturnType<typeof decode> | ReturnType<typeof prefill>) =>
+      attnOf(LLAMA3_70B, w) / passTotals(LLAMA3_70B, forwardPass(LLAMA3_70B, w)).flops;
+    close(shareOf(decode(8192)), 0.134, 5e-3, "decode 8k");
+    close(shareOf(prefill(8192)), 0.073, 5e-3, "prefill 8k");
+    close(shareOf(decode(131072)), 0.712, 2e-3, "decode 128k");
+    close(shareOf(prefill(131072)), 0.556, 2e-3, "prefill 128k");
+  });
+
+  it("one prefill layer's elementwise steps: 0.015% of the FLOPs, 24% of the bytes", () => {
+    const blocks = forwardPass(LLAMA3_70B, prefill(2048)).filter((b) => b.inLayer);
+    const ew = blocks.filter((b) => b.kind === "norm" || b.kind === "elementwise" || b.kind === "residual");
+    const sum = (bs: typeof blocks, f: (b: (typeof blocks)[number]) => number) => bs.reduce((a, b) => a + f(b), 0);
+    close(sum(ew, (b) => b.flops.value) / sum(blocks, (b) => b.flops.value), 1.45e-4, 1e-2, "FLOPs");
+    close(sum(ew, (b) => b.bytes.total) / sum(blocks, (b) => b.bytes.total), 0.2376, 1e-3, "bytes");
   });
 });
 

@@ -1,0 +1,28 @@
+---
+// Figure 1.3: one chart per model, all rendered at build time, switched by
+// radio buttons and CSS (src/styles/figures.css), so the figure ships no
+// JavaScript. Browsers without :has() show every chart, each under its label.
+import PlotSvg from './PlotSvg.astro';
+import { attentionShareChart, attentionShareLabel } from '../../figures/attention-share';
+import { cCoefficient } from '../../lib/inference/formulas';
+import { int } from '../../lib/inference/format';
+import { LLAMA32_1B, LLAMA3_405B, LLAMA3_70B, LLAMA3_8B } from '../../lib/inference/models';
+
+const models = [LLAMA32_1B, LLAMA3_8B, LLAMA3_70B, LLAMA3_405B];
+const initial = LLAMA3_70B.id;
+const num4 = (x: number) => Number(x.toPrecision(4)).toLocaleString('en-US');
+---
+<div class="views share-views">
+	<div class="seg" role="radiogroup" aria-label="Model">
+		{models.map((m) => (
+			<label><input type="radio" name="share-model" value={m.id} checked={m.id === initial} /> {m.name}</label>
+		))}
+	</div>
+	{models.map((m) => (
+		<div class={`view view-${m.id}`}>
+			<p class="view-label">{m.name}: d = {int(m.d)}, c = {num4(cCoefficient(m))}, so c·d = {int(cCoefficient(m) * m.d)}</p>
+			<PlotSvg class="only-wide" render={(o) => attentionShareChart({ ...o, model: m })} width={680} label={attentionShareLabel(m)} />
+			<PlotSvg class="only-narrow" render={(o) => attentionShareChart({ ...o, model: m })} width={340} label={attentionShareLabel(m)} />
+		</div>
+	))}
+</div>

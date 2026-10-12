@@ -1,0 +1,271 @@
+---
+description: How many parameters a model has and how many FLOPs it spends on each token, counted exactly from its config, when the shortcuts c·L·d² and 2P hold, and the attention term that 2P leaves out.
+prerequisites: Chapter 0, in particular the matrices in a layer and their shapes, and the two phases. The counting itself is multiplication and addition.
+symbols:
+  - { sym: "P", meaning: "parameters" }
+  - { sym: "L", meaning: "layers" }
+  - { sym: "d", meaning: "stream width" }
+  - { sym: "F", meaning: "MLP width" }
+  - { sym: "r", meaning: "F/d" }
+  - { sym: "N", meaning: "query heads" }
+  - { sym: "K", meaning: "key/value heads" }
+  - { sym: "H", meaning: "head width" }
+  - { sym: "g", meaning: "N/K" }
+  - { sym: "V", meaning: "vocabulary" }
+  - { sym: "t", meaning: "1 if tied, else 2" }
+  - { sym: "c", meaning: "P ≈ c·L·d²" }
+  - { sym: "S", meaning: "cached tokens" }
+  - { sym: "T", meaning: "prompt tokens" }
+  - { sym: "E", meaning: "experts per layer" }
+  - { sym: "k", meaning: "experts per token" }
+---
+import Fig from '../../components/inference/Fig.astro';
+import ParamShares from '../../components/inference/ParamShares.svelte';
+import WeightFlops from '../../components/inference/WeightFlops.svelte';
+import AttentionShare from '../../components/inference/AttentionShare.astro';
+
+<p class="lede">Before any hardware comes in, two numbers describe what a model costs: how many parameters it has, which sets the memory it needs, and how many FLOPs it spends on each token, which sets the arithmetic. Both can be counted exactly from a model's config, and both have a one-line shortcut that is usually close enough. This page derives the counts and the shortcuts, and shows where each shortcut breaks.</p>
+
+## Counting every weight
+
+Every parameter sits in one of four places, all of them drawn in chapter 0's Figure 0.1.
+
+- **The MLP.** Three matrices: $W_\text{gate}$ and $W_\text{up}$, each $d \times F$, and $W_\text{down}$, $F \times d$. That is $3dF$ per layer. An ungated MLP has two, $2dF$; a config with a `gate_proj` has three, and counting two for a gated model is a common mistake.
+- **Attention.** $W_Q$, $d \times NH$, and $W_O$, $NH \times d$, are full width; $W_K$ and $W_V$, $d \times KH$, are as narrow as GQA makes them. Together they hold $2dNH + 2dKH = 2d{(N+K)}H$ per layer. With multi-head attention and $NH = d$, that is $4d^2$.
+- **Norms.** Each layer's two RMSNorms have one learned scale per channel, $2d$ in all, and the final norm adds one more $d$.
+- **Embeddings.** The embedding table, $V \times d$, and `lm_head`, $d \times V$: $t \cdot Vd$ in all, where $t$ is 2, or 1 when the two are tied and share one table.
+
+Adding them up:
+
+$$
+\begin{aligned}
+P \;&=\; L\big(\underbrace{3dF}_{\text{MLP}} + \underbrace{2d(N+K)H}_{\text{attention}} + \underbrace{2d}_{\text{norms}}\big) \\
+&\quad +\; \underbrace{t\,Vd}_{\text{embeddings}} \;+\; \underbrace{d}_{\text{final norm}}
+\end{aligned}
+$$
+
+For Llama 3 70B, with $L$ = 80, $d$ = 8,192, $F$ = 28,672, $N$ = 64, $K$ = 8, $H$ = 128, $V$ = 128,256 and separate embeddings:
+
+<div class="table-wrap">
+
+| Part | Per layer | All layers | Share of $P$ |
+|---|---:|---:|---:|
+| MLP, $3dF$ | 704.6 M | 56.37 B | 79.9% |
+| Attention, $2d{(N+K)}H$ | 151.0 M | 12.08 B | 17.1% |
+| Norms | 16,384 | 1.32 M | 0.002% |
+| Embeddings, $2Vd$ | | 2.10 B | 3.0% |
+| Total, $P$ | | 70.55 B | |
+
+</div>
+
+The norms, $2d$ per layer and $d$ for the final one, are kept only so that the total comes out exact. Figure 1.1 does the same count for five models, from Llama 3.2 1B to Llama 3.1 405B.
+
+<Fig n="1.1" title="Where the parameters are.">
+  <ParamShares client:visible />
+  <Fragment slot="caption">Each bar is one model's parameters, split by where they live; the right-hand column is the embeddings' share. MHA marks the one model with multi-head attention, and tied the one whose lm_head shares the embedding table. The last row is built from the ratios of the next section: make it shallower, narrower or give it a larger vocabulary, and watch the embeddings' share grow.</Fragment>
+</Fig>
+
+Three patterns hold across the five:
+
+- **The MLP is most of every model**, 65% to 81% here. For a large model, its weights and its MLP's weights are nearly the same bytes.
+- **Attention's share depends mostly on $K$.** Llama 2 13B, with multi-head attention, spends a third of each layer on attention; the Llama 3 models, with $K$ = 8, under a fifth.
+- **The embeddings shrink as the model grows.** They hold $tVd$ parameters, while the layers hold a constant times $Ld^2$, so a deeper and wider model dilutes them: 1% of Llama 3.1 405B, 3% of 70B, 13% of 8B and 21% of Llama 3.2 1B, even though that model's one table also serves as `lm_head`.
+
+## The shortcut: c·L·d²
+
+Most models have $NH = d$. Writing $F = rd$, $NH = d$ and $KH = d/g$, and dropping the norms, turns each layer into a multiple of $d^2$:
+
+$$
+\begin{aligned}
+P \;&\approx\; Ld^2\big(\underbrace{3r}_{\text{MLP}} + \underbrace{2(1 + 1/g)}_{\text{attention}}\big) + t\,Vd \\
+&=\; c\,L\,d^2 + t\,Vd
+\end{aligned}
+$$
+
+The constant $c$ is read off the architecture: $3r$ for a gated MLP, or $2r$ for an ungated one, plus $2(1 + 1/g)$ for attention.
+
+<div class="table-wrap">
+
+| Model | $r$ | $g$ | MLP + attention = $c$ |
+|---|---:|---:|---:|
+| GPT-3, ungated | 4 | 1 | 8 + 4 = 12 |
+| Llama 2 13B | 2.7 | 1 | 8.1 + 4 = 12.1 |
+| Llama 3.2 1B | 4 | 4 | 12 + 2.5 = 14.5 |
+| Llama 3 8B | 3.5 | 4 | 10.5 + 2.5 = 13 |
+| Llama 3 70B | 3.5 | 8 | 10.5 + 2.25 = 12.75 |
+| Llama 3.1 405B | 3.25 | 16 | 9.75 + 2.125 = 11.875 |
+
+</div>
+
+The $12Ld^2$ quoted in many places is GPT-3's case: an ungated MLP four times as wide as the stream, and multi-head attention. Llama 3 70B lands close to it, at 12.75, by coincidence: its gated MLP adds 2.5 and GQA takes away 1.75.
+
+The shortcut breaks in three places:
+
+- **It leaves out the embeddings,** so it falls short of $P$ by their share, the right-hand column of Figure 1.1: 3% for Llama 3 70B and 21% for Llama 3.2 1B. Next to the layers they are $tVd/(cLd^2) = tV/(cLd)$, so the shortcut fails for small models with large vocabularies.
+- **Not every model has $NH = d$.** Gemma 7B runs 16 heads of width 256 on a stream of width 3,072, so $NH$ = 4,096. For a model like that, keep the attention term as $2d{(N+K)}H$.
+- **A mixture of experts has two parameter counts**, which the last section takes apart.
+
+## Why FLOPs are twice the parameters
+
+A FLOP is one floating-point add or multiply, and a matrix multiply is made of nothing else. A dot product of two vectors of length $p$ is $p$ multiplies and $p - 1$ adds, about $2p$ FLOPs. A vector of width $m$ times an $m \times n$ matrix is $n$ dot products, $2mn$ FLOPs, and $T_\text{tok}$ rows of vectors are $T_\text{tok}$ times that. Hardware does each multiply and its add as one fused instruction, but the convention, which vendors' peak FLOP/s figures follow too, counts them as two.
+
+Counted per weight, the factor of 2 is plain. Each weight in a matrix is used exactly once per row: multiplied by one input, and added into one output.
+
+<Fig n="1.2" title="Each weight: one multiply, one add.">
+  <WeightFlops />
+  <Fragment slot="caption">A vector of width 4 times a 4 × 3 matrix. The row band is everything $x_3$ multiplies; the column band is everything added into $y_2$. They cross at one weight, and per token it takes part in exactly one multiply and one add.</Fragment>
+</Fig>
+
+So a token passing through a matrix of $n \times m$ weights costs $2nm$ FLOPs, twice the matrix's parameters, and a token passing through the whole model costs about twice the whole model:
+
+$$
+\text{FLOPs per token} \;\approx\; 2P
+$$
+
+Two exceptions make it approximate. The embedding table is read, not multiplied: looking up a token's row is a copy. And `lm_head` runs only where a next token is wanted, which is every token in decode but only the last token of a prompt in prefill. Counting just the weights a token passes through, a decoded Llama 3 70B token costs 139.0 GFLOP and a prompt token 136.9, against $2P$ = 141.1: within 3%. The exceptions matter more where the embeddings are a larger share. For Llama 3.2 1B, whose shared table is a fifth of the model, a prompt token other than the last never reaches `lm_head`, and costs only 79% of $2P$.
+
+The same counting gives training's rule of thumb. For each matrix, the backward pass computes the gradient for its weights and the gradient to hand to the layer below, each a product as large as the forward one. That is $4P$ more, $6P$ per token in all (Kaplan et al., 2020; Austin et al., 2025).
+
+## The term 2P leaves out: attention
+
+$2P$ counts multiplications by weights. Attention also multiplies activations by activations: each query against every key, then the resulting weights against every value. Those products involve no parameters, so $2P$ doesn't see them.
+
+**In decode**, each sequence's new token meets $S$ cached keys. In each layer, every one of the $N$ query heads takes a dot product of width $H$ with each key, $2SNH$ FLOPs, and the weighted sum of the $S$ values costs the same again. Over the $L$ layers, attention costs each decoded token
+
+$$
+4 \cdot L \cdot S \cdot N \cdot H \ \text{FLOPs}
+$$
+
+$K$ doesn't appear. GQA shares each key and value among $g$ query heads, so fewer of them are stored and read (chapter 2), but each of the $N$ query heads still scores all $S$ of them. GQA cuts attention's bytes, not its FLOPs.
+
+**In prefill**, token $i$ of a $T$-token prompt attends to the $i$ tokens up to and including itself, so the prompt as a whole does about half of a full $T \times T$ score matrix. Over the $L$ layers, attention costs the whole prompt
+
+$$
+2 \cdot L \cdot T^2 \cdot N \cdot H \ \text{FLOPs}
+$$
+
+Saving that half takes an attention kernel that skips the masked blocks. Computing the full matrix and masking it afterwards does all the work anyway.
+
+Against the weights' $2cLd^2$ FLOPs per token, with $NH = d$, attention catches up at
+
+$$
+S \;=\; \frac{c\,d}{2}\ \text{ in decode},
+\qquad
+T \;=\; c\,d\ \text{ in prefill}
+$$
+
+For Llama 3 70B that is 52,000 cached tokens and 104,000 prompt tokens. Decode crosses at half the length because its new token attends to the whole cache, while a prompt token attends, on average, to half the prompt. Larger models cross later, because $cd$ grows with $d$. Counting `lm_head`'s FLOPs as well, as Figure 1.3 does, moves the decode crossover a little later: to 53,000 for Llama 3 70B, and from 15,000 to 19,000 for Llama 3.2 1B, whose `lm_head` is a fifth of its weights.
+
+<Fig n="1.3" title="Attention's share of the FLOPs.">
+  <AttentionShare />
+  <Fragment slot="caption">Solid: one decoded token, with S tokens in the cache. Dashed: the average token of a T-token prompt. Counted block by block as in Figure 0.2, so lm_head and the elementwise steps are included; each dot marks where attention is half of a token's FLOPs.</Fragment>
+</Fig>
+
+For Llama 3 70B, attention's share of a token's FLOPs at four context lengths:
+
+<div class="table-wrap">
+
+| Context | Decode | Prefill |
+|---|---:|---:|
+| 2,048 | 3.7% | 1.9% |
+| 8,192 | 13.4% | 7.3% |
+| 32,768 | 38.2% | 23.9% |
+| 131,072 | 71.2% | 55.6% |
+
+</div>
+
+So $2P$ is good to a few percent at the lengths of a chat, and needs the attention term from the tens of thousands of tokens on. The scaling book (Austin et al., 2025) puts the threshold at $T > 8d$, about 64,000 tokens for $d \approx$ 8,000. That is the same derivation with other assumptions: a gated MLP four times as wide as the stream and multi-head attention, so $c$ = 16, and the full score matrix rather than the causal half. The constant comes from the architecture, so it is worth deriving rather than reciting.
+
+These are FLOPs, not time. Whether they cost time is the roofline's question, in chapter 3. Decode attention is bandwidth-bound at any batch, so in decode what costs time is reading the cache, not scoring it. In prefill, which is compute-bound, attention's FLOPs cost time in proportion.
+
+## Everything else
+
+The rest of a layer is elementwise: the two norms, RoPE, the SiLU gate and the two residual adds. (So are the softmax inside attention and the sampling at the end.) Each does a few FLOPs per element of a vector, so per token it scales with $d$ or $F$, where a matrix multiply scales with $d \cdot F$. Counted as in Figure 0.2, those six steps of one prefill layer of Llama 3 70B, with a 2,048-token prompt, do 0.015% of its FLOPs.
+
+They take far more than 0.015% of its time. Run one kernel at a time, each step reads its input from memory and writes its output back, and in that same layer they move 763 MB of the 3.2 GB the layer moves: 24% of the bytes. At Trainium2's rates, with nothing fused or overlapped, that is about 5% of the layer's time, spent on almost none of its arithmetic. He (2022), citing Ivanov et al.'s breakdown of BERT (2021), saw the same from the other side: the non-matmul operations were 0.2% of the FLOPs, but normalization ran at 250 times fewer FLOP/s than the matrix multiplies, and pointwise operations at 700 times fewer. Fusing them into a neighbouring kernel removes most of those bytes; that is chapter 6. In decode they move almost nothing, but each is still a kernel to launch, which is chapter 3's overhead regime.
+
+## Mixture of experts: two parameter counts
+
+A **mixture-of-experts** (MoE) model replaces each layer's MLP with $E$ experts, each a gated MLP of its own, and a router: a $d \times E$ matrix that scores the experts for each token and sends the token to the $k$ that score highest. The layer adds up those $k$ experts' outputs, each scaled by its router weight. Mixtral 8x7B has $E$ = 8 and $k$ = 2 at every layer.
+
+```mermaid n="1.4" caption="Mixtral 8x7B's MLP, at each of its 32 layers. All eight experts are stored; the router runs two of them for each token and adds their outputs, each scaled by its router weight. Amber boxes are weights." alt="A token's state, width d, goes to a router of d by E, which scores all eight experts and picks two. Those two experts, each a gated MLP of 3·d·F parameters, run on the token, and their outputs are added and passed back to the residual stream. The other six experts are stored but not run for this token."
+flowchart TB
+  x(["token state, width d"])
+  router["router, d × E<br/>picks 2 of 8 experts"]
+  ea["expert 3<br/>3·d·F"]
+  eb["expert 7<br/>3·d·F"]
+  rest["6 other experts<br/>stored, not run"]
+  sum(("+"))
+  out(["back to the stream"])
+  x --> router
+  router --> ea
+  router --> eb
+  router -.-> rest
+  ea --> sum
+  eb --> sum
+  sum --> out
+  classDef w fill:var(--w-soft),stroke:var(--w)
+  class router,ea,eb,rest w
+```
+
+Counting all $E$ experts gives the **total** parameters; counting only $k$ gives the **active** ones, those a single token passes through:
+
+$$
+\begin{aligned}
+P_\text{total} \;&=\; L\,\big(E \cdot 3dF + \text{rest}\big) + t\,Vd + d \\
+P_\text{active} \;&=\; L\,\big(k \cdot 3dF + \text{rest}\big) + t\,Vd + d
+\end{aligned}
+$$
+
+where the rest of a layer is its attention, the router and the norms, $2d(N+K)H + dE + 2d$. Apart from its experts, Mixtral's layers are Llama-like: $d$ = 4,096, $F$ = 14,336, 32 layers, 32 query heads and 8 key/value heads, with $V$ = 32,000. That gives 46.7 billion parameters in total and 12.9 billion active, the two numbers Mistral quotes. DeepSeek-V3 stretches the gap further: 671 billion in total, 37 billion active.
+
+The two counts answer different questions. The total sets the memory: every expert has to be in HBM, because any token might need any expert, which puts all of Mixtral at 93 GB in bf16. The active count sets the arithmetic: a token costs about $2 \times$ 12.9 billion FLOPs, as if Mixtral were a 13B dense model. The bytes a decode step reads fall between the two and depend on the batch. One token reads only its two experts in each layer, but a batch spreads out. If every token's pair of experts were picked uniformly at random, independently of the others, a batch of 8 would reach 90% of each layer's experts, and a batch of 16 almost all of them. At serving batch sizes, then, an MoE model reads like a model of its total size and computes like a model of its active size.
+
+<div class="takeaways">
+
+## Key takeaways
+
+1. In each of the $L$ layers, the MLP holds $3dF$ parameters and attention $2d(N+K)H$; the embeddings add $tVd$, and the norms almost nothing. The MLP is 65% to 81% of every model here. The embeddings grow as $Vd$ while the layers grow as $Ld^2$, so they are 1% of Llama 3.1 405B and 21% of Llama 3.2 1B.
+2. $P \approx cLd^2$, with $c = 3r + 2(1 + 1/g)$, which is 12.75 for Llama 3 70B; it misses the embeddings. Each weight a token passes through costs it one multiply and one add, so a token costs about $2P$ FLOPs, less the embedding lookup and, in prefill, `lm_head`.
+3. Attention adds $4LSNH$ FLOPs per decoded token and $2LT^2NH$ per prompt, matching the weights near $S = cd/2$ and $T = cd$, and $K$ doesn't change them. Elementwise steps are rounding errors in FLOPs but not in bytes, and an MoE model has two counts: total for memory, active for arithmetic.
+
+</div>
+
+## Check yourself
+
+<details class="check">
+<summary>Count Llama 3 8B's parameters: $L$ = 32, $d$ = 4,096, $F$ = 14,336, $N$ = 32, $K$ = 8, $H$ = 128, $V$ = 128,256, separate embeddings.</summary>
+
+The MLP is $3 \cdot 4096 \cdot 14336$ = 176.2 M per layer and attention $2 \cdot 4096 \cdot 40 \cdot 128$ = 41.9 M, so with 8,192 for the norms a layer holds 218.1 M, and 32 of them hold 6.98 B. The embeddings are $2 \cdot 128256 \cdot 4096$ = 1.05 B, and the final norm adds 4,096: 8.03 B in all. The embeddings are 13% of it, which is why $cLd^2$ = 6.98 B undercounts this model by as much.
+
+</details>
+
+<details class="check">
+<summary>A model has an ungated MLP of width $4d$ and multi-head attention. What is $c$, and why is Llama 3 70B's $c$ so close to it?</summary>
+
+$c = 2 \cdot 4 + 2(1 + 1) = 12$. Llama 3 70B's gated MLP with $r$ = 3.5 gives $3r$ = 10.5 instead of 8, which adds 2.5, and GQA with $g$ = 8 gives 2.25 instead of 4, which takes away 1.75. The net is 12.75: close, for two unrelated reasons that happen to almost cancel.
+
+</details>
+
+<details class="check">
+<summary>Llama 3 70B is decoding with 32,768 tokens cached. How much does attention add to each token's FLOPs, and does each step take that much longer?</summary>
+
+$4 \cdot 80 \cdot 32768 \cdot 8192$ = 85.9 GFLOP, 62% on top of the weights' 139 GFLOP. The step barely slows for it: decode is bandwidth-bound (chapter 3), so extra FLOPs cost almost nothing. What grows with $S$, and costs time, is the cache each step reads (chapter 2): 10 GiB per sequence at this length.
+
+</details>
+
+## Sources
+
+<div class="sources">
+
+- Kaplan et al., [Scaling Laws for Neural Language Models](https://arxiv.org/abs/2001.08361) (2020): forward FLOPs as $2N$ plus an attention term, with $N$ counted without the embeddings, the multiply-accumulate behind the factor of 2, and $6N$ per training token.
+- Austin et al., [How To Scale Your Model](https://jax-ml.github.io/scaling-book/), part on [transformers](https://jax-ml.github.io/scaling-book/transformers/) (2025): the FLOPs of a contraction, the gated MLP's $3DF$, 6 × parameters × tokens for training, the attention threshold $T > 8D$ and its assumptions, and the kernel needed to skip the masked half.
+- Brown et al., [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165) (2020): GPT-3's feed-forward layer, always four times the width of the stream.
+- Gemma Team, [Gemma: Open Models Based on Gemini Research and Technology](https://arxiv.org/abs/2403.08295) (2024): Gemma 7B's 16 heads of width 256 on a 3,072-wide stream.
+- He, [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html) (2022), with the BERT breakdown from Ivanov et al., [Data Movement Is All You Need](https://arxiv.org/abs/2007.00072) (2021).
+- Jiang et al., [Mixtral of Experts](https://arxiv.org/abs/2401.04088) (2024): the shape (Table 1), and the router, a softmax over the top two of $x \cdot W_g$ that weights the chosen experts' outputs. Mistral AI's [announcement](https://mistral.ai/news/mixtral-of-experts) (2023) gives the 46.7B parameters in total and 12.9B used per token.
+- DeepSeek-AI, [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437) (2024): 671B total parameters, 37B activated for each token.
+- Meta's [model configurations](https://github.com/meta-llama/llama-models/blob/main/models/sku_list.py) for the Llama 3 shapes, and the [Llama 3.2 model card](https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md), which lists the 1B model at 1.23B parameters with shared embeddings; this page counts 1,235,814,400. Llama 2 13B's shape is from its [config](https://huggingface.co/meta-llama/Llama-2-13b-hf).
+- kipply, [Transformer Inference Arithmetic](https://kipp.ly/transformer-inference-arithmetic/) (2022): the counting this page follows.
+
+</div>

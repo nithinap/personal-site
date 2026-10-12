@@ -552,3 +552,185 @@
 .prose .lanes .lane-title:first-child {
   margin-top: 0;
 }
+
+/* ---------- Figure 1.1, ParamShares.svelte ----------
+   All three parts are weights, so all three are amber: solid, soft and
+   between. Text on solid amber uses the page colour, which reads on it in
+   both palettes. */
+.shares {
+  --cols: minmax(8.5rem, 11.5rem) minmax(0, 1fr) 5.5rem;
+  --emb: color-mix(in srgb, var(--w) 45%, var(--n-page));
+  font-size: 0.875rem;
+}
+.prose .shares .key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+.shares .key .muted {
+  color: var(--n-muted);
+}
+.shares .swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.4rem;
+  vertical-align: -0.1rem;
+  border: 1px solid var(--w);
+}
+.shares .swatch.mlp,
+.shares .part.mlp {
+  background: var(--w);
+}
+.shares .swatch.attn,
+.shares .part.attn {
+  background: var(--w-soft);
+}
+.shares .swatch.emb,
+.shares .part.emb {
+  background: var(--emb);
+}
+.shares .head {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0 0.75rem;
+  padding: 0 0 0.35rem;
+  color: var(--n-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.shares .head span:last-child {
+  text-align: right;
+}
+.shares .rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shares .row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0 0.75rem;
+  align-items: center;
+  margin: 0;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--n-rule);
+}
+.shares .row.mine {
+  margin-top: 0.4rem;
+  border-top: 1px dashed var(--n-muted);
+}
+.shares .name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.45rem;
+  min-width: 0;
+  line-height: 1.35;
+}
+.shares .name .p {
+  color: var(--n-muted);
+  font-family: "Geist Mono", monospace;
+  font-size: 0.8rem;
+}
+.shares .tag {
+  padding: 0 0.3rem;
+  border: 1px solid var(--n-rule);
+  color: var(--n-muted);
+  font-size: 0.7rem;
+}
+.shares .bar {
+  display: flex;
+  height: 22px;
+  min-width: 0;
+}
+.shares .part {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 1px solid var(--w);
+  border-left-width: 0;
+}
+.shares .part:first-child {
+  border-left-width: 1px;
+}
+.shares .pl {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--n-text);
+}
+.shares .part.mlp .pl {
+  color: var(--n-page);
+  font-weight: 600;
+}
+.shares .emb-pct {
+  font-family: "Geist Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.shares .emb-lab {
+  display: none;
+  color: var(--n-muted);
+}
+.shares .mine-controls {
+  margin: 0.9rem 0 0.25rem;
+  padding: 0.6rem 0.75rem 0.75rem;
+  border: 1px solid var(--n-rule);
+}
+.shares .mine-controls legend {
+  padding: 0 0.3rem;
+  color: var(--n-muted);
+  font-size: 0.8rem;
+}
+.shares .range input[type="range"] {
+  width: 8rem;
+  accent-color: var(--n-accent);
+}
+.shares .range output {
+  min-width: 2rem;
+  color: var(--n-text);
+  font-family: "Geist Mono", monospace;
+}
+.shares .tie input {
+  accent-color: var(--n-accent);
+}
+@media (max-width: 560px) {
+  .shares {
+    --cols: minmax(0, 1fr) max-content;
+  }
+  .shares .head {
+    display: none;
+  }
+  .shares .row {
+    grid-template-areas:
+      "name emb"
+      "bar bar";
+    row-gap: 0.35rem;
+  }
+  .shares .name {
+    grid-area: name;
+  }
+  .shares .emb-pct {
+    grid-area: emb;
+  }
+  .shares .bar {
+    grid-area: bar;
+  }
+  .shares .emb-lab {
+    display: inline;
+  }
+}
+
+/* ---------- Figure 1.3: one chart per model, switched by radio buttons ----------
+   Browsers without :has() show every chart, each under its own label. */
+.share-views:has(input[value="llama32-1b"]:checked) .view:not(.view-llama32-1b),
+.share-views:has(input[value="llama3-8b"]:checked) .view:not(.view-llama3-8b),
+.share-views:has(input[value="llama3-70b"]:checked) .view:not(.view-llama3-70b),
+.share-views:has(input[value="llama3-405b"]:checked) .view:not(.view-llama3-405b) {
+  display: none;
+}

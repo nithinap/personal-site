@@ -88,6 +88,58 @@ export const LLAMA2_13B: ModelShape = {
 export const MODEL_PRESETS: ModelShape[] = [LLAMA3_8B, LLAMA3_70B, LLAMA3_405B, LLAMA2_13B];
 
 /**
+ * Llama 3.2 1B: the small end, where the embeddings are a fifth of the model.
+ * Its table is shared with lm_head ("Shared Embeddings: Yes" in the model
+ * card), so t = 1. Not in MODEL_PRESETS, whose figures are about large models.
+ */
+export const LLAMA32_1B: ModelShape = {
+  id: "llama32-1b",
+  name: "Llama 3.2 1B",
+  L: 16,
+  d: 2048,
+  F: 8192,
+  N: 32,
+  K: 8,
+  H: 64,
+  V: 128256,
+  tied: true,
+  source: {
+    label: "Meta, llama-models sku_list.py and the Llama 3.2 model card",
+    url: "https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md",
+  },
+};
+
+/** Chapter 1's models, largest first. */
+export const SIZE_PRESETS: ModelShape[] = [LLAMA3_405B, LLAMA3_70B, LLAMA2_13B, LLAMA3_8B, LLAMA32_1B];
+
+/**
+ * A mixture-of-experts model: each layer holds E experts, each a gated MLP of
+ * width F, and a router of d × E sends every token to k of them.
+ */
+export interface MoeShape extends ModelShape {
+  /** Experts per layer. */
+  E: number;
+  /** Experts each token is sent to. */
+  k: number;
+}
+
+export const MIXTRAL_8X7B: MoeShape = {
+  id: "mixtral-8x7b",
+  name: "Mixtral 8x7B",
+  L: 32,
+  d: 4096,
+  F: 14336,
+  N: 32,
+  K: 8,
+  H: 128,
+  V: 32000,
+  tied: false,
+  E: 8,
+  k: 2,
+  source: { label: "Mixtral-8x7B config.json", url: "https://huggingface.co/mistralai/Mixtral-8x7B-v0.1" },
+};
+
+/**
  * DeepSeek 67B: a dense GQA-8 model, and the baseline behind DeepSeek-V2's
  * "93.3% smaller KV cache". Not a figure preset.
  */
