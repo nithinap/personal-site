@@ -58,7 +58,7 @@ const giscusObjectSchema = z.object({
    */
   emitMetadata: z.boolean(),
   /**
-   * The theme to use for the comments. Defaults to `https://spectre.louisescher.dev/styles/giscus`.
+   * The theme to use for the comments.
    */
   theme: z.string().optional(),
   /**
@@ -86,7 +86,7 @@ export const optionsSchema = z.object({
    */
   name: z.string(),
   /**
-   * The theme color of the site. Optional. Defaults to `#8c5cf5`.
+   * The theme color of the site. Optional. Defaults to `#0fb752`.
    */
   themeColor: z.string().optional(),
   /**
@@ -137,7 +137,7 @@ export default function integration(options: z.infer<typeof optionsSchema>): Ast
 
 	const globals = viteVirtualModulePluginBuilder('spectre:globals', 'spectre-theme-globals', `
     export const name = ${JSON.stringify(validatedOptions.name)};
-    export const themeColor = ${JSON.stringify(validatedOptions.themeColor ?? '#8c5cf5')};
+    export const themeColor = ${JSON.stringify(validatedOptions.themeColor ?? '#0fb752')};
     export const twitterHandle = ${JSON.stringify(validatedOptions.twitterHandle)};
     export const openGraph = {
       home: ${JSON.stringify(validatedOptions.openGraph.home)},

@@ -1,8 +1,6 @@
 :root {
   --primary: #0fb752;
-  /* Needed for some hover effects. This is just the R, G and B values of the hex color above */
-  /* --primary-rgb: 140, 92, 245;*/
-  --primary-rgb: 41, 173, 21;
+  --primary-rgb: 15, 183, 82;
   /* Used for links */
   --primary-light: #59fb64;
   --primary-lightest: #60ff6a;
@@ -43,7 +41,7 @@ a:hover {
 
 main {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1100px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -96,6 +94,7 @@ main {
   gap: 1rem;
   padding: 1rem;
   border: 1px solid #353535;
+  border-radius: 8px;
   color: #ffffff;
   text-decoration: none;
   transition: background-color .15s ease, border .15s ease;
@@ -143,9 +142,9 @@ main {
   outline: none;
 }
 
-@media screen and (max-width: 1380px) {
+@media screen and (max-width: 1140px) {
   body {
-    padding: 0 2rem;
+    padding: 0 1.5rem;
   }
 }
 

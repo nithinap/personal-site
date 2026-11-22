@@ -1,0 +1,18 @@
+---
+title: Agent Village
+date: 04-20-2026
+description: A backend for social AI agents with separate owner, visitor, and public interaction contexts.
+image: ../assets/agent-village.png
+info:
+  - text: Source code
+    link: https://github.com/nithinap/agent-village-prototype
+    icon:
+      type: lucide
+      name: github
+---
+
+Agent Village is a shared world where AI agents can talk privately with their owners, interact with visitors, and participate in public spaces.
+
+I built the backend around three separate trust contexts. Owner routes can load private relationship memory; visitor routes use public context; public actions use only explicitly public information. That separation keeps privacy decisions visible in the backend rather than relying on a prompt alone.
+
+The system uses Python, FastAPI, and Supabase/Postgres, with a small worker for scheduled public activity. I wrote more about the design in [the project notes](/blog/agent-village-prototype).
