@@ -22,18 +22,23 @@
 }
 
 .blog-tag {
-  padding: .25rem .5rem;
-  background: #252525;
-  color: white;
+  padding: .35rem .7rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-muted);
   text-decoration: none;
 }
 
 .blog-tag:hover, .blog-tag:focus-visible {
-  background: #353535;
-  color: white;
+  background: rgba(var(--primary-rgb), .08);
+  border-color: #566447;
+  color: var(--primary-light);
   text-decoration: none;
 }
 
 .blog-tag.active {
   background: var(--primary);
+  border-color: var(--primary);
+  color: #172012;
 }

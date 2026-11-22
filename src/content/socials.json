@@ -3,18 +3,27 @@
     "id": 1,
     "icon": {
       "type": "lucide",
-      "name": "github"
+      "name": "linkedin"
     },
-    "text": "GitHub",
-    "link": "https://github.com/nithinap"
+    "text": "LinkedIn",
+    "link": "https://www.linkedin.com/in/nithinap/"
   },
   {
     "id": 2,
     "icon": {
       "type": "lucide",
-      "name": "linkedin"
+      "name": "mail"
     },
-    "text": "LinkedIn",
-    "link": "https://www.linkedin.com/in/nithinap/"
+    "text": "nithin.apn@gmail.com",
+    "link": "mailto:nithin.apn@gmail.com"
+  },
+  {
+    "id": 3,
+    "icon": {
+      "type": "lucide",
+      "name": "github"
+    },
+    "text": "GitHub",
+    "link": "https://github.com/nithinap"
   }
 ]

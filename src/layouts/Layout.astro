@@ -2,10 +2,9 @@
 import '../styles/reset.css';
 import '../styles/globals.css';
 
-import Background from '../components/Background.astro';
 import Navbar from '../components/Navbar.astro';
 import LayoutGrid from '../components/LayoutGrid.astro';
-import { name, themeColor, twitterHandle } from 'spectre:globals';
+import { name, twitterHandle } from 'spectre:globals';
 
 interface Props {
 	title: string;
@@ -16,9 +15,10 @@ interface Props {
 		createdAt: Date;
 		updatedAt?: Date;
 	};
+	fullWidth?: boolean;
 }
 
-const { title, description, image, pagefindIgnore, article } = Astro.props;
+const { title, description, image, pagefindIgnore, article, fullWidth = false } = Astro.props;
 
 // This page's own absolute URL. Using Astro.site alone told search engines
 // that every page was a duplicate of the home page.
@@ -38,7 +38,7 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 
 		<title>{title}</title>
 		{description && <meta name="description" content={description} />}
-		<meta name="theme-color" content={themeColor}>
+		<meta name="theme-color" content="#111410">
 
 		<link rel="canonical" href={canonicalURL} />
 
@@ -69,14 +69,17 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 		<meta name="twitter:image" content={image?.src || '/img/og.png'} />
 	</head>
 	<body>
-		<main data-pagefind-ignore={pagefindIgnore}>
+		<main class:list={{ 'full-width-layout': fullWidth }} data-pagefind-ignore={pagefindIgnore}>
 			<Navbar />
-			<LayoutGrid>
-				<slot name="left" slot="left" />
-				<slot name="right" slot="right" />
-			</LayoutGrid>
+			{fullWidth ? (
+				<slot />
+			) : (
+				<LayoutGrid>
+					<slot name="left" slot="left" />
+					<slot name="right" slot="right" />
+				</LayoutGrid>
+			)}
 			<slot name="404" />
 		</main>
-		<Background />
 	</body>
 </html>

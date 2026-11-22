@@ -34,7 +34,7 @@ main {
   --color-prettylights-syntax-brackethighlighter-angle: #8b949e;
   --color-prettylights-syntax-sublimelinter-gutter-mark: #484f58;
   --color-prettylights-syntax-constant-other-reference-link: #a5d6ff;
-  --color-btn-text: #c7c7c7;
+  --color-btn-text: #c5c9bf;
   --color-btn-bg: rgb(51 51 51 / 80%);
   --color-btn-border: rgb(246 246 246 / 10%);
   --color-btn-shadow: 0 0 transparent;
@@ -44,38 +44,38 @@ main {
   --color-btn-active-bg: hsl(212deg 12% 18% / 50%);
   --color-btn-active-border: #6e7681;
   --color-btn-selected-bg: rgb(51 51 51 / 50%);
-  --color-btn-primary-text: #fff;
-  --color-btn-primary-bg: #8c5cf5;
+  --color-btn-primary-text: #172012;
+  --color-btn-primary-bg: #c9ed83;
   --color-btn-primary-border: rgb(240 246 252 / 10%);
   --color-btn-primary-shadow: 0 0 transparent;
   --color-btn-primary-inset-shadow: 0 0 transparent;
-  --color-btn-primary-hover-bg: #996aff;
+  --color-btn-primary-hover-bg: #d7f49d;
   --color-btn-primary-hover-border: rgb(240 246 252 / 10%);
-  --color-btn-primary-selected-bg: #7341df;
+  --color-btn-primary-selected-bg: #b8dc73;
   --color-btn-primary-selected-shadow: 0 0 transparent;
-  --color-btn-primary-disabled-text: rgb(240 246 252 / 50%);
-  --color-btn-primary-disabled-bg: rgb(140 92 245 / 60%);
+  --color-btn-primary-disabled-text: rgb(23 32 18 / 50%);
+  --color-btn-primary-disabled-bg: rgb(201 237 131 / 60%);
   --color-btn-primary-disabled-border: rgb(246 246 246 / 10%);
   --color-action-list-item-default-hover-bg: rgb(157 157 157 / 12%);
   --color-segmented-control-bg: rgb(110 110 110 / 10%);
   --color-segmented-control-button-bg: transparent;
   --color-segmented-control-button-selected-border: #6b6b6b;
-  --color-fg-default: #ffffff;
-  --color-fg-muted: #c7c7c7;
-  --color-fg-subtle: #484848;
+  --color-fg-default: #eeefe9;
+  --color-fg-muted: #a6aa9f;
+  --color-fg-subtle: #73796e;
   --color-canvas-default: transparent;
   --color-canvas-overlay: rgb(27 27 27 / 90%);
   --color-canvas-inset: transparent;
   --color-canvas-subtle: transparent;
-  --color-border-default: #353535;
-  --color-border-muted: #252525;
+  --color-border-default: #30362e;
+  --color-border-muted: #252c23;
   --color-neutral-muted: rgb(118 118 118 / 5%);
   --color-neutral-subtle: rgb(118 118 118 / 10%);
-  --color-accent-fg: #bc9dff;
-  --color-accent-emphasis: #8c5cf5;
-  --color-accent-muted: rgb(140 92 245 / 40%);
-  --color-accent-subtle: rgb(140 92 245 / 10%);
-  --color-success-fg: #3fb950;
+  --color-accent-fg: #d7f49d;
+  --color-accent-emphasis: #c9ed83;
+  --color-accent-muted: rgb(201 237 131 / 40%);
+  --color-accent-subtle: rgb(201 237 131 / 10%);
+  --color-success-fg: #c9ed83;
   --color-attention-fg: #c69026;
   --color-attention-muted: rgb(174 124 20 / 40%);
   --color-attention-subtle: rgb(174 124 20 / 15%);
@@ -83,8 +83,8 @@ main {
   --color-danger-muted: rgb(229 83 75 / 40%);
   --color-danger-subtle: rgb(229 83 75 / 10%);
   --color-primer-shadow-inset: 0 0 transparent;
-  --color-scale-gray-7: #262626;
-  --color-scale-blue-8: #353535;
+  --color-scale-gray-7: #252c23;
+  --color-scale-blue-8: #30362e;
 
   /*! Extensions from @primer/css/alerts/flash.scss */
   --color-social-reaction-bg-hover: var(--color-scale-gray-7);
@@ -100,23 +100,7 @@ main .pagination-loader-container {
 }
 
 .gsc-homepage-bg {
-  background: linear-gradient(135deg, #05485c, #032e58, #2f0154);
-  background-size: 600% 600%;
-  animation: gradient 21s ease infinite;
-}
-
-@keyframes gradient {
-  0% {
-    background-position: 2% 0%;
-  }
-
-  50% {
-    background-position: 99% 100%;
-  }
-
-  100% {
-    background-position: 2% 0%;
-  }
+  background: linear-gradient(135deg, #1a2118, #111410);
 }
 
 main .gsc-loading-image {

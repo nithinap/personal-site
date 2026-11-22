@@ -51,8 +51,10 @@ const renderData = iconToSVG(iconData, {
 
 const body = replaceIDs(renderData.body);
 
-let renderAttribsHTML =
-	body.indexOf('xlink:') === -1 ? '' : ' xmlns:xlink="http://www.w3.org/1999/xlink"';
+let renderAttribsHTML = ` viewBox="${renderData.attributes.viewBox}"`;
+if (body.indexOf('xlink:') !== -1) {
+	renderAttribsHTML += ' xmlns:xlink="http://www.w3.org/1999/xlink"';
+}
 
 for (const attr in attributes) {
 	renderAttribsHTML += ` ${attr}="${attributes[attr]}"`;

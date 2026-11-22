@@ -24,7 +24,7 @@
 
 html {
 	color-scheme: dark;
-  background-color: #0b0b0b;
+  background-color: #111410;
 }
 
 html,
@@ -35,6 +35,8 @@ body {
 body {
 	-webkit-font-smoothing: antialiased;
   font-family: 'Geist', Arial, Helvetica, sans-serif;
+  color: #eeefe9;
+  background-color: #111410;
 }
 
 input,
@@ -80,7 +82,7 @@ pre, pre *, code {
 }
 
 pre {
-  border: 1px solid rgb(#353535);
+  border: 1px solid var(--line);
   overflow-y: hidden;
   padding: .5rem;
   border-radius: .25rem;
